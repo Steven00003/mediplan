@@ -1,0 +1,73 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    function esCuidadorDelPaciente(pacienteId) {
+      return isAuthenticated()
+          && get(/databases/$(database)/documents/pacientes/$(pacienteId)).data.cuidadorId == request.auth.uid;
+    }
+
+    function esDispositivoVinculado(pacienteId) {
+      return isAuthenticated()
+          && get(/databases/$(database)/documents/pacientes/$(pacienteId)).data.dispositivoVinculadoId == request.auth.uid;
+    }
+
+    function estaLibre(dispositivo) {
+      return dispositivo == null || dispositivo == '';
+    }
+
+    match /usuarios/{uid} {
+      allow read, create, update: if isAuthenticated() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    match /pacientes/{pacienteId} {
+      allow read: if isAuthenticated()
+              && (request.auth.uid == resource.data.cuidadorId
+                  || request.auth.uid == resource.data.dispositivoVinculadoId);
+      allow create: if isAuthenticated()
+                    && request.resource.data.cuidadorId == request.auth.uid
+                    && request.resource.data.codigoVinculacion != null
+                    && request.resource.data.nombre != null;
+      allow update: if isAuthenticated() && (
+          request.auth.uid == resource.data.cuidadorId
+          ||
+          (request.resource.data.dispositivoVinculadoId == request.auth.uid
+           && estaLibre(resource.data.dispositivoVinculadoId)
+           && request.resource.data.codigoVinculacion == resource.data.codigoVinculacion
+           && request.resource.data.cuidadorId == resource.data.cuidadorId)
+      );
+      allow delete: if isAuthenticated()
+                    && request.auth.uid == resource.data.cuidadorId;
+    }
+
+    match /tratamientos/{id} {
+      allow read, update, delete: if esCuidadorDelPaciente(resource.data.pacienteId)
+                                  || esDispositivoVinculado(resource.data.pacienteId);
+      allow create: if esCuidadorDelPaciente(request.resource.data.pacienteId)
+                    || esDispositivoVinculado(request.resource.data.pacienteId);
+    }
+
+    match /registrosToma/{id} {
+      allow read, update, delete: if esCuidadorDelPaciente(resource.data.pacienteId)
+                                  || esDispositivoVinculado(resource.data.pacienteId);
+      allow create: if esCuidadorDelPaciente(request.resource.data.pacienteId)
+                    || esDispositivoVinculado(request.resource.data.pacienteId);
+    }
+
+    match /vinculos/{codigo} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated()
+                            && request.resource.data.pacienteId != null
+                            && esCuidadorDelPaciente(request.resource.data.pacienteId);
+      allow delete: if isAuthenticated()
+                    && resource.data.pacienteId != null
+                    && esCuidadorDelPaciente(resource.data.pacienteId);
+    }
+  }
+}

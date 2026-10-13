@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "246766930434",
+    "project_id": "mediplan-35953",
+    "storage_bucket": "mediplan-35953.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:246766930434:android:4adc3d8aca8200d1ad351b",
+        "android_client_info": {
+          "package_name": "com.mediplan.mediplan"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "246766930434-aa4ue8impnr4t29dhv12k5neqc9ki06q.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mediplan.mediplan",
+            "certificate_hash": "559eab790a5ba821dcea3f5e6a22eed50b91f507"
+          }
+        },
+        {
+          "client_id": "246766930434-cg5oknrbl7ja2fsksa9eka6ofitqnfnm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDdDkTTLrfN7RDE3lEb0Nbbb3S3k32jskk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "246766930434-cg5oknrbl7ja2fsksa9eka6ofitqnfnm.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "246766930434-aq7e3o2r3j4it3hi4bnt06ojbrd80j8l.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.mediplan.mediplan"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
