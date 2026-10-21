@@ -1,17 +1,17 @@
 # AGENTS.md
 
-Flutter (Dart) + Firebase medication app. Two UX flows (caregiver/doctor in `lib/screens/doctor/`, patient in `lib/screens/paciente/`). 100% client + Firestore rules — no Cloud Functions, no FCM, no Storage. `flutter analyze` clean; 77 tests pass.
+Flutter (Dart) + Firebase medication app. Two UX flows (caregiver/doctor in `lib/screens/doctor/`, patient in `lib/screens/paciente/`). 100% client + Firestore rules — no Cloud Functions, no Storage. Caregiver alerts use a client-sent FCM HTTP v1 push + local notifications (see Push section). `flutter analyze` clean; 77 tests pass.
 
 ## Commands (run from `mediplan/`)
 
 - `flutter pub get` — install deps
 - `flutter analyze` — correctness gate (~45s warm, ~150s typical; cold ~300s). Don't kill it.
-- `flutter test` — 7 files / 77 tests (~30s). For a single file: `flutter test test/<file>.dart`. Use ASCII `--plain-name` substring for accented names (e.g. `flutter test --plain-name "formato de c"`).
+- `flutter test` — 7 files / 77 tests (~10-30s). For a single file: `flutter test test/<file>.dart`. Use ASCII `--plain-name` substring for accented names (e.g. `flutter test --plain-name "formato de c"`). Run analyze/test **sequentially**: concurrent invocations contend for the Flutter tool lock and can hang widget tests (`did not complete`) or time out analyze.
 - `flutter build apk` — needs NDK `flutter.ndkVersion` (28.2.13676358 on 3.47.2). SDK/NDK/AGP/Kotlin/Gradle/Java follow Flutter defaults (see `android/app/build.gradle.kts`; release still signed with the debug key, core-library desugaring on for `flutter_local_notifications`).
 - `firebase deploy --only firestore:rules --project mediplan-35953` — no `.firebaserc`; must specify `--project`. `--only firestore:indexes` is a no-op (indexes live in Firebase console).
-- `dart run flutter_launcher_icons` / `dart run flutter_native_splash:create` — regenerate the native launcher icon / splash after editing `assets/icon/` (config in `pubspec.yaml`; not covered by `flutter analyze`/`flutter test`). `icon.png` is for launcher/splash; `logo_app.png` is the in-app logo.
+- `dart run flutter_launcher_icons` / `dart run flutter_native_splash:create` — regenerate the native launcher icon / splash after editing `assets/icon/` (config in `pubspec.yaml`; not covered by `flutter analyze`/`flutter test`). `icon.png` is the badge used by the launcher/splash **and** by `AppLogo` in-app; `logo_app.png` is an older unused variant.
 
-Toolchain: Flutter 3.47.2 / Dart 3.13.2 / firebase CLI 15.28.2 (pubspec pins `sdk: ^3.13.2`). Not a git repo; `firebase_options.dart` and `android/app/google-services.json` contain real populated keys for project `mediplan-35953` despite `firebase_options.dart`'s "PLACEHOLDER" header and the README — running `flutterfire configure` would overwrite working config.
+Toolchain: Flutter 3.47.2 / Dart 3.13.2 / firebase CLI 15.28.2 (pubspec pins `sdk: ^3.13.2`). Git repo on `main` (remote `origin` = github.com/Steven00003/mediplan) with a single commit, so most work may be uncommitted in the working tree. `firebase_options.dart` and `android/app/google-services.json` contain real populated keys for project `mediplan-35953` despite `firebase_options.dart`'s "PLACEHOLDER" header and the README — running `flutterfire configure` would overwrite working config.
 
 ## Environment/Config Notes
 
@@ -19,6 +19,7 @@ Toolchain: Flutter 3.47.2 / Dart 3.13.2 / firebase CLI 15.28.2 (pubspec pins `sd
 - `firebase.json` has no `emulators` — no Firebase init in tests; Firestore-dependent flows are untestable in-repo.
 - No CI/pre-commit hooks. iOS not set up (no Podfile; plugins use SPM). Release signed with debug key. Core library desugaring required for `flutter_local_notifications`.
 - Alarm brightness needs the special `WRITE_SETTINGS` appop (declared in `AndroidManifest.xml` with `tools:ignore="ProtectedPermissions"`). `MainActivity.kt` hosts a `MethodChannel` (`com.mediplan.mediplan/ajustes_escritura`: `puedeEscribirAjustes`/`abrirAjustesEscritura`) because `screen_brightness` has no Dart API to open that settings page — `flutter analyze` cannot verify this Kotlin.
+- Android back button on a **root** screen: `ConfirmarSalidaApp` (`lib/widgets/confirmar_salida_app.dart`) wraps the two root screens (`SeleccionRolScreen`, `DashboardScreen`) with `PopScope(canPop: false)` and confirms full app exit via `SystemNavigator.pop()`. Do not confuse it with the patient `PopScope(canPop: false)` in `medicamentos_proximos_screen.dart`, which blocks back entirely (exit via long-press).
 - Single entrypoint `lib/main.dart` → `MediPlanApp`; Firebase + notifications init happen in `BootstrapScreen` (`lib/app.dart`), not `main()`. `HomeRouter` picks role from Auth state + `AppState`.
 
 ## Critical Architecture
@@ -34,7 +35,7 @@ Toolchain: Flutter 3.47.2 / Dart 3.13.2 / firebase CLI 15.28.2 (pubspec pins `sd
 - Deterministic alarm IDs: `NotificacionesService.idDeAlarma(tratamientoId, hora, dia) = hashEstable("$tratamientoId|$hora|$dia")` (31-bit polynomial, `0->1`), shared with `OmitidasService.idDocumento` (same recomputable property). `String.hashCode` not stable across runs. **Do not change `hashEstable`** — `test/notificaciones_service_test.dart` pins 5 literal IDs and asserts 63-collision freedom; `OmitidasService.idDocumento` has no such pins (add if touching hash).
 - Back-compat cancellations: also cancels legacy `(id.hashCode ^ i) & 0x7FFFFFFF` and snooze id `(id.hashCode & 0x7FFFFFFF)+1`. Snooze uses `programarAlarmaDiaria` (one-shot) with id = `(tratamiento.id.hashCode & 0x7FFFFFFF)+1` (per-treatment constant) — not derived from `idDeAlarma`; second snooze overwrites. Never cancelled on "YA".
 - `horarios.dias` fully wired (scheduling, cancellation, pending-dose detection). Scheduling registers one alarm per `(hora,dia)` with `dayOfWeekAndTime`. AlarmScreen auto-opens in `[now-5min,now+2min]` window (first match by document/horario order) with brightness boost/vibration; reconciliation suspended while open.
-- Caregiver alerts: local notifications on `registrosToma` confirmations (`tomada|tardia|pospuesta`, one per registro) **and** `olvidó` — olvidadas aggregated into ONE summary notification per stream emission (`_procesarRegistros` in `dashboard_screen.dart`) so a multi-day reconciliation backfill doesn't spam. Shown only while the app is visible (`_appVisible()`); background/terminated coverage comes from FCM (next section). Testable pure logic lives in `push_service`'s helpers only if you add any.
+- Caregiver alerts: local notifications on `registrosToma` confirmations (`tomada|tardia|pospuesta`, one per registro) **and** `olvidó` — olvidadas aggregated into ONE summary notification per stream emission (`_procesarRegistros` in `dashboard_screen.dart`) so a multi-day reconciliation backfill doesn't spam. Shown only while the app is visible (`_appVisible()`); background/terminated coverage comes from FCM (next section). The push path has no tests (needs Firebase/HTTP); verify it manually.
 
 ### Push patient→caregiver (FCM HTTP v1, no Cloud Functions)
 - `PushService` (`lib/services/push_service.dart`) sends from the **patient device** to `POST https://fcm.googleapis.com/v1/projects/mediplan-35953/messages:send` using `googleapis_auth` (`clientViaServiceAccount`, scope `firebase.messaging`, auto-refresh). **The service-account JSON ships inside the APK** (`assets/secrets/fcm_service_account.json`, gitignored; role should be limited to `cloudmessaging.messages.create`). It is trivially extractable — the real fix is a proxy server, not relocating the key.
@@ -66,4 +67,4 @@ Toolchain: Flutter 3.47.2 / Dart 3.13.2 / firebase CLI 15.28.2 (pubspec pins `sd
 - Dead code exists (e.g. `LocalStore.getDispositivoId()`, some old vinculation methods) — don't "fix" them blindly; read comments/symbols first. `usuarios` written only on register/Google (not email/password) if doc doesn't exist.
 
 ## References (trust code over docs)
-- README/ESQUEMA partly stale and its `file.dart:line` references drift. Trust this AGENTS.md and verify against `lib/` when in doubt (ESQUEMA is still the best data-model map despite omissions). Known stale ESQUEMA claims: `generarCodigo()` uses `Random.secure()` (not an LCG), and `tardó`/`olvidó` ARE now produced (alarm + reconciliation) — ESQUEMA says they never are.
+- README/ESQUEMA partly stale and its `file.dart:line` references drift. Trust this AGENTS.md and verify against `lib/` when in doubt (ESQUEMA is still the best data-model map despite omissions). Known stale ESQUEMA claims: `generarCodigo()` uses `Random.secure()` (not an LCG), and `tardó`/`olvidó` ARE now produced (alarm + reconciliation) — ESQUEMA says they never are. Both README and ESQUEMA also still say the app uses no FCM, despite the push section above.

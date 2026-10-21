@@ -11,6 +11,7 @@ import '../../services/firestore_service.dart';
 import '../../services/notificaciones_service.dart';
 import '../../services/push_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/confirmar_salida_app.dart';
 import 'detalle_paciente_screen.dart';
 import 'nuevo_paciente_screen.dart';
 
@@ -200,105 +201,107 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mis pacientes'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Cerrar sesión',
-            onPressed: () async {
-              // Antes de cerrar sesión: dejar de recibir push en este teléfono.
-              await _push.cerrarSesionCuidador();
-              await _auth.cerrarSesion();
-            },
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => const NuevoPacienteScreen(),
-            ),
-          );
-        },
-        backgroundColor: AppColors.accent,
-        foregroundColor: AppColors.onAccent,
-        icon: const Icon(Icons.person_add),
-        label: const Text('Nuevo paciente'),
-      ),
-      body: _uidVacio
-          ? const Center(child: Text('No hay sesión activa'))
-          : StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('pacientes')
-                  .where('cuidadorId', isEqualTo: uid)
-                  .snapshots(),
-              builder: (context, snap) {
-                if (snap.hasError) {
-                  return const Center(
-                    child: Text('Error al cargar pacientes'),
-                  );
-                }
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final pacientes = snap.data!.docs
-                    .map((d) =>
-                        Paciente.fromMap(d.id, d.data() as Map<String, dynamic>))
-                    .toList();
-                if (pacientes.isEmpty) {
-                  return _EmptyState(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const NuevoPacienteScreen(),
-                        ),
-                      );
-                    },
-                  );
-                }
-                return ListView(
-                  padding: const EdgeInsets.all(12),
-                  children: [
-                    ...pacientes.map(
-                      (p) => Card(
-                        margin: const EdgeInsets.symmetric(vertical: 6),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: AppColors.accent,
-                            foregroundColor: AppColors.onAccent,
-                            child: const Icon(Icons.person),
-                          ),
-                          title: Text(p.nombre,
-                              style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold)),
-                          subtitle: Text('Código: ${p.codigoVinculacion}'),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => DetallePacienteScreen(
-                                  pacienteId: p.id,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _ActividadReciente(
-                      pacienteIds: _pacienteIds,
-                      nombresPaciente: _nombresPaciente,
-                      nombresMedicamento: _nombresMedicamento,
-                      fs: _fs,
-                    ),
-                  ],
-                );
+    return ConfirmarSalidaApp(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Mis pacientes'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Cerrar sesión',
+              onPressed: () async {
+                // Antes de cerrar sesión: dejar de recibir push en este teléfono.
+                await _push.cerrarSesionCuidador();
+                await _auth.cerrarSesion();
               },
             ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const NuevoPacienteScreen(),
+              ),
+            );
+          },
+          backgroundColor: AppColors.accent,
+          foregroundColor: AppColors.onAccent,
+          icon: const Icon(Icons.person_add),
+          label: const Text('Nuevo paciente'),
+        ),
+        body: _uidVacio
+            ? const Center(child: Text('No hay sesión activa'))
+            : StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('pacientes')
+                    .where('cuidadorId', isEqualTo: uid)
+                    .snapshots(),
+                builder: (context, snap) {
+                  if (snap.hasError) {
+                    return const Center(
+                      child: Text('Error al cargar pacientes'),
+                    );
+                  }
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final pacientes = snap.data!.docs
+                      .map((d) =>
+                          Paciente.fromMap(d.id, d.data() as Map<String, dynamic>))
+                      .toList();
+                  if (pacientes.isEmpty) {
+                    return _EmptyState(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const NuevoPacienteScreen(),
+                          ),
+                        );
+                      },
+                    );
+                  }
+                  return ListView(
+                    padding: const EdgeInsets.all(12),
+                    children: [
+                      ...pacientes.map(
+                        (p) => Card(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: AppColors.accent,
+                              foregroundColor: AppColors.onAccent,
+                              child: const Icon(Icons.person),
+                            ),
+                            title: Text(p.nombre,
+                                style: const TextStyle(
+                                    fontSize: 18, fontWeight: FontWeight.bold)),
+                            subtitle: Text('Código: ${p.codigoVinculacion}'),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => DetallePacienteScreen(
+                                    pacienteId: p.id,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _ActividadReciente(
+                        pacienteIds: _pacienteIds,
+                        nombresPaciente: _nombresPaciente,
+                        nombresMedicamento: _nombresMedicamento,
+                        fs: _fs,
+                      ),
+                    ],
+                  );
+                },
+              ),
+      ),
     );
   }
 

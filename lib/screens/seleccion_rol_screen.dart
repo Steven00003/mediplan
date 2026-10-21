@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/app_state.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/confirmar_salida_app.dart';
 import 'doctor/login_screen.dart';
 import 'paciente/codigo_unirse_screen.dart';
 
@@ -22,65 +23,67 @@ class SeleccionRolScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.primary,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Huevo de pascua: tocar el logo abre la página del proyecto en
-              // el navegador externo. Sin indicador visual a propósito.
-              GestureDetector(
-                onTap: () => _abrirPaginaProyecto(context),
-                child: const AppLogo(
-                  tamanoLogo: 120,
-                  tamanoTexto: 40,
+    return ConfirmarSalidaApp(
+      child: Scaffold(
+        backgroundColor: AppColors.primary,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Huevo de pascua: tocar el logo abre la página del proyecto en
+                // el navegador externo. Sin indicador visual a propósito.
+                GestureDetector(
+                  onTap: () => _abrirPaginaProyecto(context),
+                  child: const AppLogo(
+                    tamanoLogo: 120,
+                    tamanoTexto: 40,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '¿Quién es?',
-                style: TextStyle(
-                  color: AppColors.onGreen,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
+                const SizedBox(height: 8),
+                const Text(
+                  '¿Quién es?',
+                  style: TextStyle(
+                    color: AppColors.onGreen,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 48),
-              _BotonRol(
-                icono: Icons.person,
-                titulo: 'Paciente',
-                descripcion: 'Tomo mis medicinas',
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      // Las rutas push NO heredan el provider de HomeRouter;
-                      // re-exponemos el mismo AppState para que la pantalla
-                      // pueda leerlo.
-                      builder: (_) => ChangeNotifierProvider<AppState>.value(
-                        value: context.read<AppState>(),
-                        child: const CodigoUnirseScreen(),
+                const SizedBox(height: 48),
+                _BotonRol(
+                  icono: Icons.person,
+                  titulo: 'Paciente',
+                  descripcion: 'Tomo mis medicinas',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        // Las rutas push NO heredan el provider de HomeRouter;
+                        // re-exponemos el mismo AppState para que la pantalla
+                        // pueda leerlo.
+                        builder: (_) => ChangeNotifierProvider<AppState>.value(
+                          value: context.read<AppState>(),
+                          child: const CodigoUnirseScreen(),
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-              _BotonRol(
-                icono: Icons.medical_services,
-                titulo: 'Doctor',
-                descripcion: 'Cuido a mis pacientes',
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const LoginScreen(),
-                    ),
-                  );
-                },
-              ),
-            ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+                _BotonRol(
+                  icono: Icons.medical_services,
+                  titulo: 'Doctor',
+                  descripcion: 'Cuido a mis pacientes',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LoginScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),

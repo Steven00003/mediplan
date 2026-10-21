@@ -70,24 +70,46 @@ class PushService {
     }
   }
 
-  /// Lado cuidador: pide permiso, publica su token en sus pacientes y escucha
-  /// las rotaciones que hace FCM. Se llama al abrir el dashboard.
+  /// Lado cuidador: pide permiso, obtiene el token, lo publica en sus pacientes
+  /// y escucha las rotaciones que hace FCM. Se llama al abrir el dashboard.
+  ///
+  /// Best-effort: nunca lanza ni interrumpe al usuario; si algo falla, solo se
+  /// registra en el log.
   Future<void> registrarCuidador() async {
     if (_auth.currentUser == null) return;
     try {
-      final ajustes = await _messaging.requestPermission();
-      if (ajustes.authorizationStatus == AuthorizationStatus.denied) {
-        debugPrint('FCM: permiso de notificaciones denegado');
-        return;
-      }
-      _tokenActual = await _messaging.getToken();
-      await _publicarToken(_tokenActual);
       _suscripcionToken ??= _messaging.onTokenRefresh.listen(
         (token) => unawaited(_actualizarToken(token)),
       );
+
+      // Permiso de notificaciones (Android 13+). No bloquea el registro: el
+      // token se obtiene y publica aunque esté denegado, y así el paciente ya
+      // podrá avisar en cuanto el usuario conceda el permiso.
+      try {
+        final ajustes = await _messaging.requestPermission();
+        if (ajustes.authorizationStatus == AuthorizationStatus.denied) {
+          debugPrint('FCM: permiso de notificaciones denegado');
+        }
+      } catch (e) {
+        debugPrint('FCM: no se pudo pedir el permiso de notificaciones: $e');
+      }
+
+      _tokenActual = await _obtenerToken();
+      await _publicarToken(_tokenActual);
     } catch (e) {
       debugPrint('FCM: no se pudo registrar el dispositivo: $e');
     }
+  }
+
+  /// Reintenta `getToken()` (hasta 3 veces) porque en Android puede devolver
+  /// null de forma transitoria.
+  Future<String?> _obtenerToken() async {
+    for (var intento = 1; intento <= 3; intento++) {
+      final token = await _messaging.getToken();
+      if (token != null && token.isNotEmpty) return token;
+      if (intento < 3) await Future<void>.delayed(const Duration(seconds: 2));
+    }
+    return null;
   }
 
   /// Lado cuidador: reintenta publicar el token actual. El dashboard lo llama
