@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -26,6 +28,11 @@ class NotificacionesService {
   static const String canalAlarmasId = 'alarmas_medicamentos';
   static const String canalCuidadorId = 'alertas_cuidador';
 
+  /// Canal propio para obtener la zona IANA real del dispositivo. Se usa en
+  /// `inicializar()` para que `timezone` no se quede en UTC por defecto.
+  static const MethodChannel _canalDiagnostico =
+      MethodChannel('com.mediplan.mediplan/diagnostico');
+
   static const _channel = AndroidNotificationDetails(
     canalAlarmasId,
     'Alarmas de medicamentos',
@@ -47,9 +54,11 @@ class NotificacionesService {
     priority: Priority.high,
   );
 
-  /// Inicializa el plugin y pide permisos. Se llama una vez en main().
+  /// Inicializa el plugin, fija la zona local y crea los canales.
+  /// Se llama una vez desde `BootstrapScreen`.
   Future<void> inicializar() async {
     tz.initializeTimeZones();
+    await _configurarZonaHorariaLocal();
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const darwinInit = DarwinInitializationSettings(
@@ -64,6 +73,23 @@ class NotificacionesService {
 
     await _plugin.initialize(initSettings);
     await _crearCanales();
+  }
+
+  /// Fija `tz.local` en la zona IANA real del dispositivo.
+  ///
+  /// `tz.initializeTimeZones()` deja `tz.local` en UTC. Si no se corrige, un
+  /// horario de las 08:00 se interpreta como 08:00 UTC y la alarma suena a la
+  /// hora equivocada (o se reprograma para otro día).
+  Future<void> _configurarZonaHorariaLocal() async {
+    try {
+      final id = await _canalDiagnostico.invokeMethod<String>('timeZoneId');
+      if (id == null || id.isEmpty) return;
+      tz.setLocalLocation(tz.getLocation(id));
+    } catch (e) {
+      // En tests o fuera de Android el canal no existe. Se mantiene el
+      // comportamiento anterior (UTC) en vez de romper el arranque.
+      debugPrint('No se pudo configurar la zona horaria local: $e');
+    }
   }
 
   /// Crea los canales explícitamente.
@@ -100,6 +126,32 @@ class NotificacionesService {
         IOSFlutterLocalNotificationsPlugin>();
     await ios?.requestPermissions(alert: true, badge: true, sound: true);
   }
+
+  /// Diagnóstico temporal: alarmas que el plugin tiene registradas en el
+  /// sistema. En Android lee la caché de `SharedPreferences` del plugin, así
+  /// que confirma que `zonedSchedule()` llegó a guardar la solicitud, no que
+  /// `AlarmManager` la haya aceptado.
+  Future<List<PendingNotificationRequest>> alarmasProgramadas() =>
+      _plugin.pendingNotificationRequests();
+
+  /// Diagnóstico temporal: estado del permiso de alarmas exactas.
+  ///
+  /// En Android < 12 el plugin devuelve `true` porque el permiso no existe;
+  /// no debe interpretarse como un permiso concedido.
+  Future<bool?> puedeProgramarAlarmasExactas() async {
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    return android?.canScheduleExactNotifications();
+  }
+
+  /// Diagnóstico temporal: zona horaria que usa `timezone`.
+  ///
+  /// Si vale `UTC`, las horas `HH:mm` se están interpretando como UTC y no
+  /// como hora local del dispositivo.
+  String get zonaHoraria => tz.local.name;
+
+  /// Diagnóstico temporal: hora actual en la zona que usa `timezone`.
+  String get ahoraEnZonaHoraria => tz.TZDateTime.now(tz.local).toString();
 
   /// Programa una alarma **puntual** (una sola ejecución) para un horario
   /// HH:mm.

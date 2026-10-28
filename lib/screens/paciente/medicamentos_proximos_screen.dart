@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    show PendingNotificationRequest;
 import 'package:provider/provider.dart';
 
 import '../../models/registro_toma.dart';
@@ -8,6 +11,7 @@ import '../../models/tratamiento.dart';
 import '../../providers/app_state.dart';
 import '../../services/firestore_service.dart';
 import '../../services/imagen_service.dart';
+import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
 import 'alarma_screen.dart';
 
@@ -214,10 +218,40 @@ class _MedicamentosProximosScreenState
         ],
       );
 
-  /// Contenido de la pestaña "Horario": los medicamentos que hoy tienen toma.
+  /// Contenido de la pestaña "Horario": el botón temporal de diagnóstico y
+  /// la lista de medicamentos.
+  Widget _buildHorario(String pacienteId) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _mostrarDiagnosticoAlarmas,
+              icon: const Icon(Icons.alarm),
+              label: const Text('Ver alarmas programadas'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.accent,
+                side: const BorderSide(color: AppColors.accent),
+                minimumSize: const Size.fromHeight(48),
+                textStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Expanded(child: _listaHorario(pacienteId)),
+      ],
+    );
+  }
+
+  /// Lista de medicamentos que hoy tienen toma.
   ///
   /// Es la vista que ya existía, sin cambios en su lógica.
-  Widget _buildHorario(String pacienteId) {
+  Widget _listaHorario(String pacienteId) {
     return StreamBuilder<List<Tratamiento>>(
       stream: _fs.streamTratamientosDePaciente(pacienteId),
       builder: (context, snap) {
@@ -261,6 +295,13 @@ class _MedicamentosProximosScreenState
           },
         );
       },
+    );
+  }
+
+  Future<void> _mostrarDiagnosticoAlarmas() {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => const _DialogoDiagnosticoAlarmas(),
     );
   }
 
@@ -326,6 +367,243 @@ class _MedicamentosProximosScreenState
       }
     }
     return proxima;
+  }
+}
+
+/// Diálogo temporal de diagnóstico de alarmas.
+///
+/// Solo consulta: no programa, cancela ni modifica notificaciones.
+class _DialogoDiagnosticoAlarmas extends StatefulWidget {
+  const _DialogoDiagnosticoAlarmas();
+
+  @override
+  State<_DialogoDiagnosticoAlarmas> createState() =>
+      _DialogoDiagnosticoAlarmasState();
+}
+
+class _DialogoDiagnosticoAlarmasState
+    extends State<_DialogoDiagnosticoAlarmas> {
+  static const MethodChannel _canal =
+      MethodChannel('com.mediplan.mediplan/diagnostico');
+
+  final NotificacionesService _notif = NotificacionesService();
+
+  bool _cargando = true;
+  Object? _error;
+  List<PendingNotificationRequest> _pendientes = const [];
+  bool? _exactas;
+  int? _sdk;
+  String _zona = '—';
+  String _ahoraLocal = '—';
+  String _ahoraZona = '—';
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  Future<void> _cargar() async {
+    setState(() {
+      _cargando = true;
+      _error = null;
+    });
+    try {
+      final pendientes = await _notif.alarmasProgramadas();
+      final exactas = await _notif.puedeProgramarAlarmasExactas();
+      int? sdk;
+      try {
+        sdk = await _canal.invokeMethod<int>('androidSdkInt');
+      } catch (_) {
+        // El canal solo existe en Android; si falla, se muestra "desconocido".
+        sdk = null;
+      }
+      if (!mounted) return;
+      setState(() {
+        _pendientes = pendientes;
+        _exactas = exactas;
+        _sdk = sdk;
+        _zona = _notif.zonaHoraria;
+        _ahoraLocal = DateTime.now().toString();
+        _ahoraZona = _notif.ahoraEnZonaHoraria;
+        _cargando = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _cargando = false;
+      });
+    }
+  }
+
+  String get _textoExactas {
+    final sdk = _sdk;
+    if (sdk != null && sdk < 31) {
+      return 'No aplica (Android 11 o anterior)';
+    }
+    if (_exactas == null) return 'Desconocido';
+    return _exactas! ? 'Concedido' : 'Denegado';
+  }
+
+  String get _textoSdk {
+    final sdk = _sdk;
+    if (sdk == null) return 'Desconocido';
+    final version = switch (sdk) {
+      30 => 'Android 11',
+      31 => 'Android 12',
+      32 => 'Android 12L',
+      33 => 'Android 13',
+      34 => 'Android 14',
+      35 => 'Android 15',
+      36 => 'Android 16',
+      _ => 'Android',
+    };
+    return '$version (SDK $sdk)';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Diagnóstico de alarmas'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 480),
+          child: _cargando
+              ? const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              : SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _fila('Sistema', _textoSdk),
+                      _fila('Alarmas exactas', _textoExactas),
+                      _fila('Zona horaria usada', _zona),
+                      _fila('Ahora local', _ahoraLocal),
+                      _fila('Ahora en esa zona', _ahoraZona),
+                      if (_zona.toUpperCase() == 'UTC')
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Aviso: timezone está usando UTC. Las horas HH:mm '
+                            'se interpretan como UTC, no como hora local.',
+                            style: TextStyle(
+                              color: AppColors.error,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      if (_error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Error consultando el plugin: $_error',
+                            style: const TextStyle(color: AppColors.error),
+                          ),
+                        ),
+                      const Divider(height: 24),
+                      Text(
+                        'Notificaciones pendientes (${_pendientes.length})',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Lista interna de flutter_local_notifications; no '
+                        'incluye alarmas de otras apps.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_pendientes.isEmpty)
+                        const Text(
+                          'No hay ninguna notificación programada por el '
+                          'plugin en este momento.',
+                          style: TextStyle(color: AppColors.textSecondary),
+                        )
+                      else
+                        for (final p in _pendientes)
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppColors.background,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'ID: ${p.id}',
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Payload: ${p.payload ?? '(sin payload)'}',
+                                  style:
+                                      const TextStyle(fontFamily: 'monospace'),
+                                ),
+                                if (p.title != null && p.title!.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text('Título: ${p.title}'),
+                                ],
+                                if (p.body != null && p.body!.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text('Cuerpo: ${p.body}'),
+                                ],
+                              ],
+                            ),
+                          ),
+                    ],
+                  ),
+                ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _cargando ? null : _cargar,
+          child: const Text('Actualizar'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    );
+  }
+
+  Widget _fila(String etiqueta, String valor) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              etiqueta,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Expanded(child: Text(valor)),
+        ],
+      ),
+    );
   }
 }
 

@@ -7,6 +7,7 @@ import '../../models/registro_toma.dart';
 import '../../models/tratamiento.dart';
 import '../../services/firestore_service.dart';
 import '../../services/imagen_service.dart';
+import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/etiqueta_toma.dart';
 import '../../utils/estadisticas.dart';
@@ -247,7 +248,18 @@ class _PestanaHorario extends StatelessWidget {
                       ),
                   ],
                 ),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      color: AppColors.error,
+                      tooltip: 'Eliminar medicamento',
+                      onPressed: () => _confirmarEliminar(context, t),
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
@@ -265,6 +277,65 @@ class _PestanaHorario extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _confirmarEliminar(
+    BuildContext context,
+    Tratamiento tratamiento,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar medicamento'),
+        content: Text(
+          '¿Eliminar ${tratamiento.nombreMedicamento}? '
+          'Esta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: AppColors.onAccent,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+
+    try {
+      // Primero se cancelan las alarmas: si el borrado en Firestore falla,
+      // el tratamiento sigue existiendo pero nunca queda una alarma huérfana
+      // sonando para un medicamento que ya no está.
+      await NotificacionesService().cancelarAlarmasDeTratamiento(
+        tratamientoId: tratamiento.id,
+        horarios: tratamiento.horarios,
+      );
+      await FirestoreService().eliminarTratamiento(tratamiento.id);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${tratamiento.nombreMedicamento} eliminado.'),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error eliminando tratamiento: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo eliminar el medicamento.'),
+          ),
+        );
+      }
+    }
   }
 }
 
