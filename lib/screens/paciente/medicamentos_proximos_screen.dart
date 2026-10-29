@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart'
     show PendingNotificationRequest;
 import 'package:provider/provider.dart';
@@ -11,6 +10,7 @@ import '../../models/tratamiento.dart';
 import '../../providers/app_state.dart';
 import '../../services/firestore_service.dart';
 import '../../services/imagen_service.dart';
+import '../../services/local_store.dart';
 import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
 import 'alarma_screen.dart';
@@ -43,7 +43,10 @@ class _MedicamentosProximosScreenState
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!_alarmaAbierta) _revisarTomas();
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _revisarTomas());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _revisarTomas();
+      _quizasPedirPermisoPantallaCompleta();
+    });
   }
 
   @override
@@ -94,6 +97,72 @@ class _MedicamentosProximosScreenState
 
     if (candidato != null && mounted) {
       _abrirAlarma(candidato, horarioCandidato!, pacienteId);
+    }
+  }
+
+  /// Pide una sola vez el permiso de pantalla completa (Android 14+).
+  ///
+  /// En Android anterior el permiso no existe y no se muestra nada. Si el
+  /// paciente lo deniega, la alarma sigue llegando como notificación normal y
+  /// no se le vuelve a interrumpir en cada apertura.
+  Future<void> _quizasPedirPermisoPantallaCompleta() async {
+    // Deja que _revisarTomas tenga oportunidad de abrir una alarma primero:
+    // no queremos tapar la pantalla de alarma con este diálogo.
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (!mounted || _alarmaAbierta) return;
+
+    final notif = NotificacionesService();
+    final sdk = await notif.androidSdkInt();
+    if (sdk == null || sdk < 34) return;
+    if (await LocalStore.getPantallaCompletaPreguntada()) return;
+
+    final puede = await notif.puedeUsarPantallaCompleta();
+    if (puede != false || !mounted || _alarmaAbierta) return;
+
+    // Se marca antes de mostrar: si la app muere mientras el paciente está en
+    // Ajustes, el aviso no vuelve a aparecer.
+    await LocalStore.marcarPantallaCompletaPreguntada();
+    if (!mounted || _alarmaAbierta) return;
+
+    final permitir = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Alarma a pantalla completa'),
+        content: const Text(
+          'Para que la alarma de tus medicamentos aparezca en pantalla completa, '
+          'incluso con el teléfono bloqueado, Android necesita un permiso '
+          'adicional.\n\n'
+          'Si no lo activas, la alarma seguirá llegando como notificación normal.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Ahora no'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Permitir'),
+          ),
+        ],
+      ),
+    );
+    if (permitir != true || !mounted) return;
+
+    try {
+      final concedido = await notif.solicitarPermisoPantallaCompleta();
+      if (!mounted || concedido != false) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+          'El permiso no se activó. La alarma seguirá llegando como '
+          'notificación normal.',
+        ),
+      ));
+    } catch (e) {
+      debugPrint('No se pudo solicitar el permiso de pantalla completa: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('No se pudo abrir el permiso de pantalla completa.'),
+      ));
     }
   }
 
@@ -383,15 +452,13 @@ class _DialogoDiagnosticoAlarmas extends StatefulWidget {
 
 class _DialogoDiagnosticoAlarmasState
     extends State<_DialogoDiagnosticoAlarmas> {
-  static const MethodChannel _canal =
-      MethodChannel('com.mediplan.mediplan/diagnostico');
-
   final NotificacionesService _notif = NotificacionesService();
 
   bool _cargando = true;
   Object? _error;
   List<PendingNotificationRequest> _pendientes = const [];
   bool? _exactas;
+  bool? _pantallaCompleta;
   int? _sdk;
   String _zona = '—';
   String _ahoraLocal = '—';
@@ -411,17 +478,13 @@ class _DialogoDiagnosticoAlarmasState
     try {
       final pendientes = await _notif.alarmasProgramadas();
       final exactas = await _notif.puedeProgramarAlarmasExactas();
-      int? sdk;
-      try {
-        sdk = await _canal.invokeMethod<int>('androidSdkInt');
-      } catch (_) {
-        // El canal solo existe en Android; si falla, se muestra "desconocido".
-        sdk = null;
-      }
+      final pantallaCompleta = await _notif.puedeUsarPantallaCompleta();
+      final sdk = await _notif.androidSdkInt();
       if (!mounted) return;
       setState(() {
         _pendientes = pendientes;
         _exactas = exactas;
+        _pantallaCompleta = pantallaCompleta;
         _sdk = sdk;
         _zona = _notif.zonaHoraria;
         _ahoraLocal = DateTime.now().toString();
@@ -444,6 +507,15 @@ class _DialogoDiagnosticoAlarmasState
     }
     if (_exactas == null) return 'Desconocido';
     return _exactas! ? 'Concedido' : 'Denegado';
+  }
+
+  String get _textoPantallaCompleta {
+    final sdk = _sdk;
+    if (sdk != null && sdk < 34) {
+      return 'No aplica (Android 13 o anterior)';
+    }
+    if (_pantallaCompleta == null) return 'Desconocido';
+    return _pantallaCompleta! ? 'Concedido' : 'Denegado';
   }
 
   String get _textoSdk {
@@ -481,6 +553,7 @@ class _DialogoDiagnosticoAlarmasState
                     children: [
                       _fila('Sistema', _textoSdk),
                       _fila('Alarmas exactas', _textoExactas),
+                      _fila('Pantalla completa', _textoPantallaCompleta),
                       _fila('Zona horaria usada', _zona),
                       _fila('Ahora local', _ahoraLocal),
                       _fila('Ahora en esa zona', _ahoraZona),

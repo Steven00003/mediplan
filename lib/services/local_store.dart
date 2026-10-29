@@ -9,6 +9,7 @@ class LocalStore {
   static const _kDispositivoId = 'dispositivo_id';
   static const _kPacienteId = 'paciente_id';
   static const _kPacienteNombre = 'paciente_nombre';
+  static const _kPantallaCompletaPreguntada = 'pantalla_completa_preguntada';
 
   /// Genera (la primera vez) o recupera el identificador estable de este
   /// dispositivo. Se usa como `dispositivoVinculadoId` en Firestore.
@@ -42,6 +43,21 @@ class LocalStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kPacienteId);
     await prefs.remove(_kPacienteNombre);
+  }
+
+  /// ¿Ya se mostró el diálogo del permiso de pantalla completa?
+  ///
+  /// Es un aviso único por instalación: si el paciente lo deniega, no se le
+  /// vuelve a interrumpir en cada apertura. Puede activarlo después desde los
+  /// Ajustes de Android.
+  static Future<bool> getPantallaCompletaPreguntada() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kPantallaCompletaPreguntada) ?? false;
+  }
+
+  static Future<void> marcarPantallaCompletaPreguntada() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPantallaCompletaPreguntada, true);
   }
 
   static String _generarId() {

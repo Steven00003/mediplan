@@ -39,9 +39,11 @@ class NotificacionesService {
     channelDescription:
         'Recordatorios de toma de medicamentos de MediPlan',
     importance: Importance.max,
-    priority: Priority.high,
+    priority: Priority.max,
     fullScreenIntent: true,
     category: AndroidNotificationCategory.alarm,
+    visibility: NotificationVisibility.public,
+    audioAttributesUsage: AudioAttributesUsage.alarm,
     ongoing: true,
   );
 
@@ -107,6 +109,7 @@ class NotificacionesService {
       'Alarmas de medicamentos',
       description: 'Recordatorios de toma de medicamentos de MediPlan',
       importance: Importance.max,
+      audioAttributesUsage: AudioAttributesUsage.alarm,
     ));
     await android.createNotificationChannel(const AndroidNotificationChannel(
       canalCuidadorId,
@@ -142,6 +145,35 @@ class NotificacionesService {
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     return android?.canScheduleExactNotifications();
+  }
+
+  /// Nivel de API de Android, o `null` si el canal nativo no está disponible.
+  Future<int?> androidSdkInt() async {
+    try {
+      return await _canalDiagnostico.invokeMethod<int>('androidSdkInt');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Indica si Android permite abrir la alarma a pantalla completa.
+  ///
+  /// En Android < 14 el permiso no existe y el canal devuelve `true`.
+  Future<bool?> puedeUsarPantallaCompleta() async {
+    try {
+      return await _canalDiagnostico
+          .invokeMethod<bool>('canUseFullScreenIntent');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Abre la pantalla de Ajustes donde se concede el permiso de pantalla
+  /// completa (Android 14+). Devuelve si quedó concedido al volver.
+  Future<bool?> solicitarPermisoPantallaCompleta() async {
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    return android?.requestFullScreenIntentPermission();
   }
 
   /// Diagnóstico temporal: zona horaria que usa `timezone`.

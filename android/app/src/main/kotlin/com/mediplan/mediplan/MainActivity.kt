@@ -1,5 +1,7 @@
 package com.mediplan.mediplan
 
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -20,6 +22,7 @@ class MainActivity : FlutterActivity() {
         const val METODO_SDK_INT = "androidSdkInt"
         const val METODO_VERSION = "androidVersion"
         const val METODO_ZONA_HORARIA = "timeZoneId"
+        const val METODO_PUEDE_PANTALLA_COMPLETA = "canUseFullScreenIntent"
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -44,6 +47,16 @@ class MainActivity : FlutterActivity() {
                     // real del dispositivo (p. ej. America/Bogota).
                     METODO_ZONA_HORARIA ->
                         result.success(java.util.TimeZone.getDefault().id)
+                    METODO_PUEDE_PANTALLA_COMPLETA -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                            val manager = getSystemService(Context.NOTIFICATION_SERVICE)
+                                as NotificationManager
+                            result.success(manager.canUseFullScreenIntent())
+                        } else {
+                            // El permiso no existe antes de Android 14.
+                            result.success(true)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
