@@ -7,7 +7,6 @@ import '../../models/tratamiento.dart';
 import '../../services/firestore_service.dart';
 import '../../services/imagen_service.dart';
 import '../../services/notificaciones_service.dart';
-import '../../services/push_service.dart';
 import '../../services/sensores_service.dart';
 import '../../services/ventana_alarma_service.dart';
 import '../../theme/app_colors.dart';
@@ -17,9 +16,10 @@ import '../../theme/app_colors.dart';
 /// - Muestra la foto real del medicamento, no el nombre.
 /// - Brillo al máximo (con el sensor de luz detectando ambientes oscuros).
 /// - Vibración fuerte y sostenida.
-/// - Botón grande "YA" → confirma la toma; el cuidador la ve en tiempo real
-///   (y recibe una notificación local si tiene la app en primer plano).
-/// - Botón secundario "Recordar" → pospone unos minutos y vuelve a sonar.
+/// - Botón grande "YA" → confirma la toma, cancela el recordatorio tardío y
+///   muestra una felicitación local.
+/// - Botón secundario "Recordar" → pospone unos minutos, reprograma el
+///   recordatorio tardío con el nuevo desfase y vuelve a sonar.
 class AlarmaScreen extends StatefulWidget {
   final Tratamiento tratamiento;
   final TimeOfDay horaProgramada;
@@ -48,7 +48,6 @@ class _AlarmaScreenState extends State<AlarmaScreen>
   final FirestoreService _fs = FirestoreService();
   final SensoresService _sensores = SensoresService();
   final NotificacionesService _notif = NotificacionesService();
-  final PushService _push = PushService();
   final VentanaAlarmaService _ventana = const VentanaAlarmaService();
 
   Timer? _vibracionTimer;
@@ -107,15 +106,16 @@ class _AlarmaScreenState extends State<AlarmaScreen>
     _vibracionTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _sensores.vibrarFuerteYContinuo();
     });
-_sensores.vibrarFuerteYContinuo();
+    _sensores.vibrarFuerteYContinuo();
   }
 
-  /// Confirma la toma: registra como "tomó" (o "tardó" si se pasó del plazo) y el
-  /// cuidador lo ve en tiempo real en su dashboard, con una notificación local
-  /// si tiene la app en primer plano.
+  /// Confirma la toma: registra como "tomó" (o "tardó" si se pasó del plazo),
+  /// cancela el recordatorio tardío de esa ranura y muestra una felicitación.
   Future<void> _confirmar() async {
     if (_procesando) return;
     setState(() => _procesando = true);
+
+    final horaProgramada = _horaProgramada;
 
     // Se compara contra la hora programada, no contra "ahora": si el paciente
     // estuvo en la alarma un rato, la toma sigue siendo la de las 08:00.
@@ -123,7 +123,7 @@ _sensores.vibrarFuerteYContinuo();
     // El plazo es "> 15 minutos", no "> 15 minutos y pico": a los 15:00 exactos
     // la toma todavía se cuenta como "tomó". Por eso se compara la Duration
     // entera en vez de usar `inMinutes`, que trunca a 15.
-    final atraso = DateTime.now().difference(_horaProgramada);
+    final atraso = DateTime.now().difference(horaProgramada);
     final estado = atraso > AlarmaScreen._plazoTardio
         ? EstadoToma.tardia
         : EstadoToma.tomada;
@@ -131,50 +131,78 @@ _sensores.vibrarFuerteYContinuo();
     await _fs.crearRegistroToma(
       tratamientoId: widget.tratamiento.id,
       pacienteId: widget.pacienteId,
-      horaProgramada: _horaProgramada,
+      horaProgramada: horaProgramada,
       estado: estado,
     );
 
-    // Aviso al cuidador (best effort): no se espera y no puede hacer fallar la
-    // toma, que ya quedó registrada arriba.
-    unawaited(_push.notificarConfirmacion(
-      pacienteId: widget.pacienteId,
+    // El recordatorio tardío de esta ranura ya no hace falta. Si era un
+    // horario semanal, se reprograma para la semana siguiente; si era una
+    // toma pospuesta, solo se cancela su aviso puntual.
+    await _notif.cancelarRecordatorioTardioDeRanura(
+      tratamientoId: widget.tratamiento.id,
+      horaProgramada: horaProgramada,
+      horarios: widget.tratamiento.horarios,
       nombreMedicamento: widget.tratamiento.nombreMedicamento,
-      hora: _horaTxt,
-      estado: estado,
-    ));
+    );
+
+    await _notif.mostrarFelicitacion(
+      tratamientoId: widget.tratamiento.id,
+      horaProgramada: horaProgramada,
+    );
 
     await _limpiarYSalir();
   }
 
-  /// "Recordar": registra como pospuesta y reprograma la alarma en 5 minutos.
+  /// "Recordar": registra como pospuesta, reprograma la alarma en 5 minutos y
+  /// mueve el recordatorio tardío al nuevo desfase.
   Future<void> _recordar() async {
     if (_procesando) return;
     setState(() => _procesando = true);
 
+    final horaProgramada = _horaProgramada;
+
     await _fs.crearRegistroToma(
       tratamientoId: widget.tratamiento.id,
       pacienteId: widget.pacienteId,
-      horaProgramada: _horaProgramada,
+      horaProgramada: horaProgramada,
       estado: EstadoToma.pospuesta,
     );
 
-    // Igual que en `_confirmar`: el push es el extra, no la fuente de verdad.
-    unawaited(_push.notificarConfirmacion(
-      pacienteId: widget.pacienteId,
+    // Cancela (o rearma para la próxima semana) el tardío de esta ranura.
+    await _notif.cancelarRecordatorioTardioDeRanura(
+      tratamientoId: widget.tratamiento.id,
+      horaProgramada: horaProgramada,
+      horarios: widget.tratamiento.horarios,
       nombreMedicamento: widget.tratamiento.nombreMedicamento,
-      hora: _horaTxt,
-      estado: EstadoToma.pospuesta,
-    ));
+    );
 
     // Reagenda una alarma local para dentro de 5 minutos.
     final dentro = DateTime.now().add(const Duration(minutes: 5));
-    final hora = TimeOfDay(hour: dentro.hour, minute: dentro.minute);
+    final nuevaHoraProgramada = DateTime(
+      dentro.year,
+      dentro.month,
+      dentro.day,
+      dentro.hour,
+      dentro.minute,
+    );
+    final hora = TimeOfDay(
+      hour: nuevaHoraProgramada.hour,
+      minute: nuevaHoraProgramada.minute,
+    );
     await _notif.programarAlarmaDiaria(
       id: (widget.tratamiento.id.hashCode & 0x7FFFFFFF) + 1,
       hora: '${_pad(hora.hour)}:${_pad(hora.minute)}',
       nombreMedicamento: widget.tratamiento.nombreMedicamento,
-      payload: '${widget.tratamiento.id}|${_pad(hora.hour)}:${_pad(hora.minute)}',
+      payload:
+          '${widget.tratamiento.id}|${_pad(hora.hour)}:${_pad(hora.minute)}',
+    );
+
+    // El tardío de la toma pospuesta se programa 15 minutos después de la
+    // nueva alarma, no de la hora original. Es una sola ejecución.
+    await _notif.programarRecordatorioTardioPuntual(
+      tratamientoId: widget.tratamiento.id,
+      horaProgramada: nuevaHoraProgramada,
+      nombreMedicamento: widget.tratamiento.nombreMedicamento,
     );
 
     await _limpiarYSalir();
@@ -239,10 +267,9 @@ _sensores.vibrarFuerteYContinuo();
   @override
   Widget build(BuildContext context) {
     final t = widget.tratamiento;
-    final bytesFoto =
-        (t.fotoBase64 != null && t.fotoBase64!.isNotEmpty)
-            ? ImagenService.decodificar(t.fotoBase64!)
-            : null;
+    final bytesFoto = (t.fotoBase64 != null && t.fotoBase64!.isNotEmpty)
+        ? ImagenService.decodificar(t.fotoBase64!)
+        : null;
     final tieneFoto = bytesFoto != null;
 
     return Scaffold(
@@ -277,13 +304,19 @@ _sensores.vibrarFuerteYContinuo();
                             height: 260,
                             fit: BoxFit.cover,
                             errorBuilder: (_, _, _) => const Center(
-                              child: Icon(Icons.medication,
-                                  size: 120, color: AppColors.textSecondary),
+                              child: Icon(
+                                Icons.medication,
+                                size: 120,
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                           )
                         : const Center(
-                            child: Icon(Icons.medication,
-                                size: 120, color: AppColors.textSecondary),
+                            child: Icon(
+                              Icons.medication,
+                              size: 120,
+                              color: AppColors.textSecondary,
+                            ),
                           ),
                   ),
                 ),
@@ -302,10 +335,7 @@ _sensores.vibrarFuerteYContinuo();
                 Text(
                   '${t.nombreMedicamento}\nEs hora de tomar',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 22,
-                  ),
+                  style: const TextStyle(color: Colors.white70, fontSize: 22),
                 ),
                 const SizedBox(height: 40),
                 // Botón grande YA

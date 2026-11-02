@@ -310,10 +310,10 @@ class _PestanaHorario extends StatelessWidget {
     if (ok != true || !context.mounted) return;
 
     try {
-      // Primero se cancelan las alarmas: si el borrado en Firestore falla,
-      // el tratamiento sigue existiendo pero nunca queda una alarma huérfana
-      // sonando para un medicamento que ya no está.
-      await NotificacionesService().cancelarAlarmasDeTratamiento(
+      // Primero se cancelan las notificaciones: si el borrado en Firestore
+      // falla, el tratamiento sigue existiendo pero nunca queda una alarma o
+      // recordatorio huérfano para un medicamento que ya no está.
+      await NotificacionesService().cancelarNotificacionesDeTratamiento(
         tratamientoId: tratamiento.id,
         horarios: tratamiento.horarios,
       );
@@ -330,9 +330,7 @@ class _PestanaHorario extends StatelessWidget {
       debugPrint('Error eliminando tratamiento: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se pudo eliminar el medicamento.'),
-          ),
+          const SnackBar(content: Text('No se pudo eliminar el medicamento.')),
         );
       }
     }
@@ -949,10 +947,7 @@ class _PestanaEstadisticasState extends State<_PestanaEstadisticas> {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(32),
-              child: Text(
-                snap.error.toString(),
-                textAlign: TextAlign.center,
-              ),
+              child: Text(snap.error.toString(), textAlign: TextAlign.center),
             ),
           );
         }
@@ -1218,7 +1213,8 @@ class _CuadroDia extends StatelessWidget {
       EstadoDia.sinDosis => AppColors.border,
     };
     final ahora = DateTime.now();
-    final hoy = dia.year == ahora.year &&
+    final hoy =
+        dia.year == ahora.year &&
         dia.month == ahora.month &&
         dia.day == ahora.day;
 

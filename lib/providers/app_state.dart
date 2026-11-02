@@ -5,12 +5,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/paciente.dart';
-import '../models/registro_toma.dart';
 import '../services/firestore_service.dart';
 import '../services/local_store.dart';
 import '../services/omitidas_service.dart';
 import '../services/notificaciones_service.dart';
-import '../services/push_service.dart';
 import '../services/vinculacion_service.dart';
 import '../utils/reingreso_paciente.dart';
 
@@ -23,15 +21,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   final FirestoreService _fs = FirestoreService();
   final NotificacionesService _notif = NotificacionesService();
   final OmitidasService _omitidas = OmitidasService();
-  final PushService _push = PushService();
-
-  /// Ranuras olvidadas de las que ya se avisó al cuidador en esta sesión.
-  ///
-  /// `reconciliar()` solo devuelve lo que escribió en esta pasada, pero un tick
-  /// de 60s y un `resumed` solapados pueden escribir la misma toma en dos
-  /// pasadas: este set evita el push duplicado. Una ranura olvidada nunca se
-  /// vuelve "nueva" dentro de una sesión, así que no necesita expirar.
-  final Set<String> _olvidadasAvisadas = {};
 
   /// Revisa las tomas olvidadas mientras el rol paciente está activo.
   ///
@@ -117,21 +106,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final pacienteId = _pacienteVinculado?.id;
     if (pacienteId == null || _alarmaAbierta) return;
     try {
-      final nuevas = await _omitidas.reconciliar(pacienteId, forzar: forzar);
-      // El aviso de una toma olvidada es best-effort, igual que el de las
-      // confirmaciones: la toma ya quedó registrada en Firestore, que es la
-      // fuente de verdad, y el push no puede (ni debe) hacer fallar nada.
-      for (final omitida in nuevas) {
-        final clave =
-            '${omitida.tratamientoId}|${omitida.horaProgramada.millisecondsSinceEpoch}';
-        if (!_olvidadasAvisadas.add(clave)) continue;
-        unawaited(_push.notificarConfirmacion(
-          pacienteId: pacienteId,
-          nombreMedicamento: omitida.nombreMedicamento,
-          hora: omitida.horaTxt,
-          estado: EstadoToma.olvidada,
-        ));
-      }
+      await _omitidas.reconciliar(pacienteId, forzar: forzar);
     } catch (_) {
       // Reconciliar es una mejora best-effort: un fallo puntual (sin red, sin
       // índice compuesto aún) no debe sacar al paciente de la app. El siguiente
@@ -237,24 +212,27 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// no cortar al paciente que está offline.
   void _escucharPacienteDoc(String pacienteId) {
     _pacienteSub?.cancel();
-    _pacienteSub = _fs.streamPacienteDoc(pacienteId).listen(
-      (snap) {
-        if (snap.metadata.isFromCache) return; // solo dato del servidor
-        final uid = FirebaseAuth.instance.currentUser?.uid;
-        final desvinculado = !snap.exists ||
-            uid == null ||
-            (snap.data()?['dispositivoVinculadoId'] as String?) != uid;
-        if (desvinculado) {
-          unawaited(desvincularPaciente());
-        }
-      },
-      onError: (Object e) {
-        if (_esErrorDefinitivo(e)) {
-          unawaited(desvincularPaciente());
-        }
-        // Errores de red/unavailable: se ignoran, el paciente sigue.
-      },
-    );
+    _pacienteSub = _fs
+        .streamPacienteDoc(pacienteId)
+        .listen(
+          (snap) {
+            if (snap.metadata.isFromCache) return; // solo dato del servidor
+            final uid = FirebaseAuth.instance.currentUser?.uid;
+            final desvinculado =
+                !snap.exists ||
+                uid == null ||
+                (snap.data()?['dispositivoVinculadoId'] as String?) != uid;
+            if (desvinculado) {
+              unawaited(desvincularPaciente());
+            }
+          },
+          onError: (Object e) {
+            if (_esErrorDefinitivo(e)) {
+              unawaited(desvincularPaciente());
+            }
+            // Errores de red/unavailable: se ignoran, el paciente sigue.
+          },
+        );
   }
 
   /// Solo los errores de permiso del servidor cuentan como señal definitiva.
@@ -357,7 +335,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await _activarPaciente(paciente, codigoRecordado: recordada.codigo);
       // Se reprograman todas las alarmas después de validar; si falla la
       // consulta de tratamientos, el reingreso no se pierde.
-      await _programarAlarmasDePaciente(paciente.id);
+      await _programarNotificacionesDePaciente(paciente.id);
       return ResultadoReingresoPaciente.exito;
     } on FirebaseException catch (e) {
       if (e.code == 'permission-denied') {
@@ -396,11 +374,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// Cancela las alarmas locales y vuelve a programar todas las del paciente.
+  /// Cancela las notificaciones locales y vuelve a programar las del paciente.
   ///
+  /// Incluye la alarma principal, el aviso previo y el recordatorio tardío de
+  /// cada horario. La felicitación no se programa: se muestra al confirmar.
   /// Es best-effort: si la lectura de tratamientos falla, no se cancelan las
   /// alarmas existentes y el reingreso sigue siendo válido.
-  Future<void> _programarAlarmasDePaciente(String pacienteId) async {
+  Future<void> _programarNotificacionesDePaciente(String pacienteId) async {
     try {
       final tratamientos = await _fs.getTratamientosDePaciente(
         pacienteId,
@@ -410,20 +390,21 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       for (final tratamiento in tratamientos) {
         for (final horario in tratamiento.horarios) {
           try {
-            await _notif.programarAlarmasDeHorario(
+            await _notif.programarNotificacionesDeHorario(
               tratamientoId: tratamiento.id,
               horario: horario,
               nombreMedicamento: tratamiento.nombreMedicamento,
             );
           } catch (e) {
             debugPrint(
-              'No se pudo programar una alarma de ${tratamiento.id}: $e',
+              'No se pudieron programar las notificaciones de '
+              '${tratamiento.id}: $e',
             );
           }
         }
       }
     } catch (e) {
-      debugPrint('No se pudieron reprogramar las alarmas: $e');
+      debugPrint('No se pudieron reprogramar las notificaciones: $e');
     }
   }
 
@@ -454,7 +435,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _alarmaAbierta = false;
     _pararTimerOmitidas();
     _omitidas.invalidar();
-    _olvidadasAvisadas.clear();
     notifyListeners();
   }
 

@@ -78,9 +78,7 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
   }
 
   Future<void> _elegirFoto() async {
-    final foto = await _picker.pickImage(
-      source: ImageSource.gallery,
-    );
+    final foto = await _picker.pickImage(source: ImageSource.gallery);
     if (foto == null) return;
     setState(() => _cargando = true);
     try {
@@ -95,7 +93,8 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
       if (base64 == null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('No se pudo procesar la foto. Elige otra.')),
+            content: Text('No se pudo procesar la foto. Elige otra.'),
+          ),
         );
       }
     } catch (e) {
@@ -116,16 +115,19 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
     );
     if (hora != null) {
       // Un horario nuevo arranca con todos los días marcados.
-      setState(() =>
-          _horarios.add(_HorarioForm(hora, {...HorarioDia.todosLosDias})));
+      setState(
+        () => _horarios.add(_HorarioForm(hora, {...HorarioDia.todosLosDias})),
+      );
       _ordenarHorarios();
     }
   }
 
   void _ordenarHorarios() {
-    _horarios.sort((a, b) =>
-        (a.hora.hour * 60 + a.hora.minute)
-            .compareTo(b.hora.hour * 60 + b.hora.minute));
+    _horarios.sort(
+      (a, b) => (a.hora.hour * 60 + a.hora.minute).compareTo(
+        b.hora.hour * 60 + b.hora.minute,
+      ),
+    );
   }
 
   /// Garantiza que cada horario tenga al menos un día marcado. Devuelve true si
@@ -156,10 +158,13 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
     // Cada horario necesita al menos un día. Si alguno quedó sin marcar, se
     // marcan todos por defecto y se avisa brevemente; nunca se guarda vacío.
     if (_completarDiasFaltantes()) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-            'Cada horario necesita al menos un día; se marcaron todos.'),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cada horario necesita al menos un día; se marcaron todos.',
+          ),
+        ),
+      );
       setState(() {});
     }
     setState(() {
@@ -175,10 +180,12 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
       dosis: dosis.isEmpty ? '1' : dosis,
       // Cada horario conserva sus propios días seleccionados.
       horarios: _horarios
-          .map((h) => HorarioDia(
-                hora: _fmtHora(h.hora),
-                dias: (h.dias.toList()..sort()),
-              ))
+          .map(
+            (h) => HorarioDia(
+              hora: _fmtHora(h.hora),
+              dias: (h.dias.toList()..sort()),
+            ),
+          )
           .toList(),
       frecuencia: _frecuencia,
       // Vacío se guarda como null, no como ''.
@@ -193,17 +200,21 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
         await _fs.actualizarTratamiento(tratamiento);
       }
 
-      // Cancela las alarmas del estado ANTERIOR de este tratamiento (todas
-      // sus combinaciones hora+día) antes de programar las nuevas, para no
-      // dejar alarmas huérfanas de horarios que ya no existen.
+      // Cancela las notificaciones del estado ANTERIOR de este tratamiento
+      // (alarma, aviso previo y recordatorio tardío de todas sus
+      // combinaciones hora+día) antes de programar las nuevas, para no dejar
+      // avisos huérfanos de horarios que ya no existen.
       final horariosAnteriores =
           widget.tratamiento?.horarios ?? const <HorarioDia>[];
-      await _notif.cancelarAlarmasDeTratamiento(
-          tratamientoId: id, horarios: horariosAnteriores);
+      await _notif.cancelarNotificacionesDeTratamiento(
+        tratamientoId: id,
+        horarios: horariosAnteriores,
+      );
 
-      // Programa una alarma por cada día de cada horario.
+      // Programa alarma, aviso previo y recordatorio tardío por cada día de
+      // cada horario.
       for (final h in tratamiento.horarios) {
-        await _notif.programarAlarmasDeHorario(
+        await _notif.programarNotificacionesDeHorario(
           tratamientoId: id,
           horario: h,
           nombreMedicamento: nombre,
@@ -220,7 +231,6 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
       }
     }
   }
-
 
   String _fmtHora(TimeOfDay t) {
     final h = t.hour.toString().padLeft(2, '0');
@@ -248,9 +258,13 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
                 const Icon(Icons.access_time, color: AppColors.textSecondary),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(_fmtHora(horario.hora),
-                      style: const TextStyle(
-                          fontSize: 24, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    _fmtHora(horario.hora),
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
@@ -284,24 +298,26 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
     );
   }
 
-
   /// Opciones de frecuencia. Se guardan tal cual en el campo de texto libre
   /// `frecuencia`, así que agregar una opción no afecta a las ya almacenadas.
   List<DropdownMenuItem<String>> get _frecuenciaItems => [
-        const DropdownMenuItem(value: 'Diaria', child: Text('Diaria')),
-        const DropdownMenuItem(value: 'Cada 12 h', child: Text('Cada 12 h')),
-        const DropdownMenuItem(value: 'Cada 8 h', child: Text('Cada 8 h')),
-        const DropdownMenuItem(value: 'Semanal', child: Text('Semanal')),
-        const DropdownMenuItem(
-            value: 'Solo cuando sea necesario',
-            child: Text('Solo cuando sea necesario')),
-      ];
+    const DropdownMenuItem(value: 'Diaria', child: Text('Diaria')),
+    const DropdownMenuItem(value: 'Cada 12 h', child: Text('Cada 12 h')),
+    const DropdownMenuItem(value: 'Cada 8 h', child: Text('Cada 8 h')),
+    const DropdownMenuItem(value: 'Semanal', child: Text('Semanal')),
+    const DropdownMenuItem(
+      value: 'Solo cuando sea necesario',
+      child: Text('Solo cuando sea necesario'),
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.esNuevo ? 'Nuevo medicamento' : 'Editar medicamento'),
+        title: Text(
+          widget.esNuevo ? 'Nuevo medicamento' : 'Editar medicamento',
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -361,16 +377,19 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
               textCapitalization: TextCapitalization.sentences,
             ),
             const SizedBox(height: 20),
-            const Text('Horarios',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              'Horarios',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             if (_horarios.isEmpty)
-              const Text('Sin horarios agregados.',
-                  style: TextStyle(color: AppColors.textSecondary)),
-            ..._horarios
-                .asMap()
-                .entries
-                .map((e) => _horarioWidget(e.key, e.value)),
+              const Text(
+                'Sin horarios agregados.',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ..._horarios.asMap().entries.map(
+              (e) => _horarioWidget(e.key, e.value),
+            ),
             OutlinedButton.icon(
               onPressed: _agregarHorario,
               icon: const Icon(Icons.add_alarm),
@@ -378,8 +397,7 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),
-              Text(_error!,
-                  style: TextStyle(color: AppColors.error)),
+              Text(_error!, style: TextStyle(color: AppColors.error)),
             ],
             const SizedBox(height: 24),
             SizedBox(
@@ -396,10 +414,14 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
                         width: 24,
                         height: 24,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: AppColors.onAccent),
+                          strokeWidth: 2,
+                          color: AppColors.onAccent,
+                        ),
                       )
-                    : Text(widget.esNuevo ? 'Guardar' : 'Guardar cambios',
-                        style: const TextStyle(fontSize: 18)),
+                    : Text(
+                        widget.esNuevo ? 'Guardar' : 'Guardar cambios',
+                        style: const TextStyle(fontSize: 18),
+                      ),
               ),
             ),
           ],
@@ -435,8 +457,10 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
         children: [
           contenido,
           const SizedBox(height: 8),
-          const Text('Toca para elegir la foto real',
-              style: TextStyle(color: AppColors.textSecondary)),
+          const Text(
+            'Toca para elegir la foto real',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
         ],
       ),
     );
@@ -455,8 +479,7 @@ class _IconoFoto extends StatelessWidget {
         color: AppColors.primary,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: const Icon(Icons.add_a_photo,
-          size: 56, color: AppColors.accent),
+      child: const Icon(Icons.add_a_photo, size: 56, color: AppColors.accent),
     );
   }
 }

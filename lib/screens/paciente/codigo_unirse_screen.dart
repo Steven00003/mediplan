@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -49,15 +50,24 @@ class _CodigoUnirseScreenState extends State<CodigoUnirseScreen> {
       // Recargamos el estado para pasar al flujo de paciente.
       await context.read<AppState>().cargarEstadoInicial();
       if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+    } on FirebaseException catch (e, st) {
+      // El detalle técnico queda solo en el log. Al paciente no se le muestra
+      // el texto de Firestore.
+      debugPrint('Error de Firebase al vincular (${e.code}): $e\n$st');
+      _mostrarErrorDeVinculacion();
     } catch (e, st) {
-      debugPrint('Error al vincular: $e\n$st');
-      if (mounted) {
-        setState(() => _cargando = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al vincular: $e')),
-        );
-      }
+      debugPrint('Error inesperado al vincular: $e\n$st');
+      _mostrarErrorDeVinculacion();
     }
+  }
+
+  void _mostrarErrorDeVinculacion() {
+    if (!mounted) return;
+    setState(() {
+      _cargando = false;
+      _error = 'No pudimos verificar el código. '
+          'Revisa tu conexión e inténtalo de nuevo.';
+    });
   }
 
   @override

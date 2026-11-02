@@ -49,17 +49,25 @@ class NotificacionesService {
   /// cuyo canal no esté creado).
   static const String canalAlarmasId = 'alarmas_medicamentos';
   static const String canalCuidadorId = 'alertas_cuidador';
+  static const String canalAvisoPrevioId = 'avisos_previos';
+  static const String canalFelicitacionesId = 'felicitaciones';
+  static const String canalRecordatoriosTardiosId = 'recordatorios_tardios';
+
+  /// Payload de las notificaciones de recordatorio tardío. No es un payload de
+  /// alarma: al tocarlo solo se abre la app, no la pantalla de alarma. Se usa
+  /// además para cancelar los recordatorios puntuales de un tratamiento.
+  static const String _prefijoPayloadRecordatorio = 'recordatorio|';
 
   /// Canal propio para obtener la zona IANA real del dispositivo. Se usa en
   /// `inicializar()` para que `timezone` no se quede en UTC por defecto.
-  static const MethodChannel _canalDiagnostico =
-      MethodChannel('com.mediplan.mediplan/diagnostico');
+  static const MethodChannel _canalDiagnostico = MethodChannel(
+    'com.mediplan.mediplan/diagnostico',
+  );
 
   static const _channel = AndroidNotificationDetails(
     canalAlarmasId,
     'Alarmas de medicamentos',
-    channelDescription:
-        'Recordatorios de toma de medicamentos de MediPlan',
+    channelDescription: 'Recordatorios de toma de medicamentos de MediPlan',
     importance: Importance.max,
     priority: Priority.max,
     fullScreenIntent: true,
@@ -76,6 +84,47 @@ class NotificacionesService {
         'Avisos en tiempo real de confirmaciones de tomas de tus pacientes',
     importance: Importance.high,
     priority: Priority.high,
+  );
+
+  /// Aviso suave 5 minutos antes de la toma. Sin fullScreenIntent ni tono de
+  /// alarma: es un recordatorio amable, no la alarma principal.
+  static const _canalAvisoPrevio = AndroidNotificationDetails(
+    canalAvisoPrevioId,
+    'Avisos previos',
+    channelDescription: 'Aviso cinco minutos antes de cada toma',
+    importance: Importance.defaultImportance,
+    priority: Priority.defaultPriority,
+    playSound: true,
+    enableVibration: false,
+    audioAttributesUsage: AudioAttributesUsage.notification,
+    category: AndroidNotificationCategory.reminder,
+  );
+
+  /// Felicitación inmediata al confirmar. Sin sonido: el paciente acaba de
+  /// interactuar con la alarma y no queremos sumar otro tono.
+  static const _canalFelicitaciones = AndroidNotificationDetails(
+    canalFelicitacionesId,
+    'Felicitaciones',
+    channelDescription: 'Mensajes positivos al confirmar una toma',
+    importance: Importance.defaultImportance,
+    priority: Priority.defaultPriority,
+    playSound: false,
+    enableVibration: false,
+    category: AndroidNotificationCategory.status,
+  );
+
+  /// Recordatorio tardío: más insistente que el aviso previo, pero sin
+  /// fullScreenIntent y con audio de notificación (no de alarma).
+  static const _canalRecordatorioTardio = AndroidNotificationDetails(
+    canalRecordatoriosTardiosId,
+    'Recordatorios tardíos',
+    channelDescription: 'Recordatorios amables si una toma sigue pendiente',
+    importance: Importance.high,
+    priority: Priority.high,
+    playSound: true,
+    enableVibration: true,
+    audioAttributesUsage: AudioAttributesUsage.notification,
+    category: AndroidNotificationCategory.reminder,
   );
 
   /// Inicializa el plugin, fija la zona local y crea los canales.
@@ -106,10 +155,7 @@ class NotificacionesService {
       final lanzamiento = await _plugin.getNotificationAppLaunchDetails();
       if (lanzamiento?.didNotificationLaunchApp ?? false) {
         final respuesta = lanzamiento?.notificationResponse;
-        _registrarPayload(
-          respuesta?.payload,
-          idNotificacion: respuesta?.id,
-        );
+        _registrarPayload(respuesta?.payload, idNotificacion: respuesta?.id);
       }
     } catch (e) {
       debugPrint('No se pudo leer el lanzamiento por notificación: $e');
@@ -120,15 +166,14 @@ class NotificacionesService {
 
   /// Recibe el toque de una notificación con la app ya en marcha.
   void _alRecibirRespuesta(NotificationResponse respuesta) {
-    _registrarPayload(
-      respuesta.payload,
-      idNotificacion: respuesta.id,
-    );
+    _registrarPayload(respuesta.payload, idNotificacion: respuesta.id);
   }
 
   void _registrarPayload(String? payload, {int? idNotificacion}) {
     final limpio = payload?.trim();
     if (limpio == null || limpio.isEmpty) return;
+    // Los recordatorios tardíos no abren la pantalla de alarma.
+    if (limpio.startsWith(_prefijoPayloadRecordatorio)) return;
     _payloadPendiente.value = PayloadAlarma(
       limpio,
       idNotificacion: idNotificacion,
@@ -166,32 +211,74 @@ class NotificacionesService {
   /// necesitan que [canalCuidadorId] exista de antemano (su id va en el
   /// AndroidManifest como `default_notification_channel_id`).
   Future<void> _crearCanales() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android == null) return;
-    await android.createNotificationChannel(const AndroidNotificationChannel(
-      canalAlarmasId,
-      'Alarmas de medicamentos',
-      description: 'Recordatorios de toma de medicamentos de MediPlan',
-      importance: Importance.max,
-      audioAttributesUsage: AudioAttributesUsage.alarm,
-    ));
-    await android.createNotificationChannel(const AndroidNotificationChannel(
-      canalCuidadorId,
-      'Alertas de tus pacientes',
-      description:
-          'Avisos en tiempo real de confirmaciones de tomas de tus pacientes',
-      importance: Importance.high,
-    ));
+    await android.createNotificationChannel(
+      const AndroidNotificationChannel(
+        canalAlarmasId,
+        'Alarmas de medicamentos',
+        description: 'Recordatorios de toma de medicamentos de MediPlan',
+        importance: Importance.max,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+      ),
+    );
+    await android.createNotificationChannel(
+      const AndroidNotificationChannel(
+        canalCuidadorId,
+        'Alertas de tus pacientes',
+        description:
+            'Avisos en tiempo real de confirmaciones de tomas de tus pacientes',
+        importance: Importance.high,
+      ),
+    );
+    await android.createNotificationChannel(
+      const AndroidNotificationChannel(
+        canalAvisoPrevioId,
+        'Avisos previos',
+        description: 'Aviso cinco minutos antes de cada toma',
+        importance: Importance.defaultImportance,
+        playSound: true,
+        enableVibration: false,
+        audioAttributesUsage: AudioAttributesUsage.notification,
+      ),
+    );
+    await android.createNotificationChannel(
+      const AndroidNotificationChannel(
+        canalFelicitacionesId,
+        'Felicitaciones',
+        description: 'Mensajes positivos al confirmar una toma',
+        importance: Importance.defaultImportance,
+        playSound: false,
+        enableVibration: false,
+      ),
+    );
+    await android.createNotificationChannel(
+      const AndroidNotificationChannel(
+        canalRecordatoriosTardiosId,
+        'Recordatorios tardíos',
+        description: 'Recordatorios amables si una toma sigue pendiente',
+        importance: Importance.high,
+        playSound: true,
+        enableVibration: true,
+        audioAttributesUsage: AudioAttributesUsage.notification,
+      ),
+    );
   }
 
   /// Pide permiso para mostrar notificaciones (Android 13+ / iOS).
   Future<void> pedirPermiso() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     await android?.requestNotificationsPermission();
-    final ios = _plugin.resolvePlatformSpecificImplementation<
-        IOSFlutterLocalNotificationsPlugin>();
+    final ios = _plugin
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >();
     await ios?.requestPermissions(alert: true, badge: true, sound: true);
   }
 
@@ -207,8 +294,10 @@ class NotificacionesService {
   /// En Android < 12 el plugin devuelve `true` porque el permiso no existe;
   /// no debe interpretarse como un permiso concedido.
   Future<bool?> puedeProgramarAlarmasExactas() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     return android?.canScheduleExactNotifications();
   }
 
@@ -226,8 +315,9 @@ class NotificacionesService {
   /// En Android < 14 el permiso no existe y el canal devuelve `true`.
   Future<bool?> puedeUsarPantallaCompleta() async {
     try {
-      return await _canalDiagnostico
-          .invokeMethod<bool>('canUseFullScreenIntent');
+      return await _canalDiagnostico.invokeMethod<bool>(
+        'canUseFullScreenIntent',
+      );
     } catch (_) {
       return null;
     }
@@ -236,8 +326,10 @@ class NotificacionesService {
   /// Abre la pantalla de Ajustes donde se concede el permiso de pantalla
   /// completa (Android 14+). Devuelve si quedó concedido al volver.
   Future<bool?> solicitarPermisoPantallaCompleta() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     return android?.requestFullScreenIntentPermission();
   }
 
@@ -320,6 +412,111 @@ class NotificacionesService {
     return hashEstable('$tratamientoId|$hora|$dia');
   }
 
+  // -----------------------------------------------------------------------
+  // Ids de las notificaciones locales del paciente
+  // -----------------------------------------------------------------------
+  //
+  // La alarma principal usa ids positivos en todo el rango [1, 0x7FFFFFFF].
+  // Para que no pueda chocar con ella, los tres tipos nuevos usan ids
+  // negativos, que el plugin acepta (rango int32) y Android también admite.
+  // Además cada tipo tiene su propio subrango, así que tampoco chocan entre sí:
+  //
+  //   aviso previo:          [-0x0FFFFFFF, -1]
+  //   felicitación:          [-0x1FFFFFFF, -0x10000000]
+  //   tardío recurrente:     [-0x27FFFFFF, -0x20000000]
+  //   tardío puntual (posponer): [-0x2FFFFFFF, -0x28000000]
+  //
+  // El tardío puntual es una variante del tercer tipo (mismo canal), pero con
+  // subrango propio para poder cancelarlo sin tumbar el recordatorio semanal.
+
+  static const int minIdAvisoPrevio = -0x0FFFFFFF;
+  static const int maxIdAvisoPrevio = -1;
+  static const int minIdFelicitacion = -0x1FFFFFFF;
+  static const int maxIdFelicitacion = -0x10000000;
+  static const int minIdRecordatorioTardio = -0x27FFFFFF;
+  static const int maxIdRecordatorioTardio = -0x20000000;
+  static const int minIdRecordatorioTardioPospuesto = -0x2FFFFFFF;
+  static const int maxIdRecordatorioTardioPospuesto = -0x28000000;
+
+  static int _idEnRango(String clave, int base, int tamano) {
+    return -(base + (hashEstable(clave) % tamano));
+  }
+
+  /// Id estable del aviso 5 minutos antes de una toma.
+  static int idDeAvisoPrevio(String tratamientoId, String hora, int dia) {
+    return _idEnRango('aviso|$tratamientoId|$hora|$dia', 1, 0x0FFFFFFF);
+  }
+
+  /// Id estable de la felicitación de una ranura concreta.
+  static int idDeFelicitacion(String tratamientoId, DateTime horaProgramada) {
+    return _idEnRango(
+      'felicitacion|$tratamientoId|${_claveMinuto(horaProgramada)}',
+      0x10000000,
+      0x10000000,
+    );
+  }
+
+  /// Id estable del recordatorio tardío semanal de una toma.
+  static int idDeRecordatorioTardio(
+    String tratamientoId,
+    String hora,
+    int dia,
+  ) {
+    return _idEnRango(
+      'tardio|$tratamientoId|$hora|$dia',
+      0x20000000,
+      0x08000000,
+    );
+  }
+
+  /// Id estable del recordatorio tardío puntual que se crea al posponer.
+  static int idDeRecordatorioTardioPospuesto(
+    String tratamientoId,
+    DateTime horaProgramada,
+  ) {
+    return _idEnRango(
+      'tardio-pospuesto|$tratamientoId|${_claveMinuto(horaProgramada)}',
+      0x28000000,
+      0x08000000,
+    );
+  }
+
+  static String _claveMinuto(DateTime fecha) {
+    final y = fecha.year.toString().padLeft(4, '0');
+    final m = fecha.month.toString().padLeft(2, '0');
+    final d = fecha.day.toString().padLeft(2, '0');
+    final h = fecha.hour.toString().padLeft(2, '0');
+    final min = fecha.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d-$h-$min';
+  }
+
+  /// Desplaza una hora `HH:mm` y su día ISO, admitiendo cruces de medianoche.
+  ///
+  /// Por ejemplo, el aviso de una toma del lunes a las 00:03 es el domingo a
+  /// las 23:58 (día 7), y el recordatorio tardío de una toma del domingo a las
+  /// 23:55 es el lunes a las 00:10 (día 1). Se usa para que
+  /// `DateTimeComponents.dayOfWeekAndTime` repita en el día correcto.
+  static (String, int) desplazarHoraYDia(String hora, int dia, int minutos) {
+    final partes = hora.split(':');
+    final h = int.parse(partes[0]);
+    final m = int.parse(partes[1]);
+    var total = h * 60 + m + minutos;
+    var offsetDias = 0;
+    while (total < 0) {
+      total += 1440;
+      offsetDias--;
+    }
+    while (total >= 1440) {
+      total -= 1440;
+      offsetDias++;
+    }
+    final nuevoDia = ((dia - 1 + offsetDias) % 7 + 7) % 7 + 1;
+    final nuevaHora =
+        '${(total ~/ 60).toString().padLeft(2, '0')}:'
+        '${(total % 60).toString().padLeft(2, '0')}';
+    return (nuevaHora, nuevoDia);
+  }
+
   /// Programa una alarma por cada día de la semana en que aplica [horario].
   ///
   /// Cada día se agenda por separado con
@@ -375,13 +572,308 @@ class NotificacionesService {
   tz.TZDateTime _proximaInstanciaSemanal(String hora, int dia) {
     final partes = hora.split(':');
     final ahora = tz.TZDateTime.now(tz.local);
-    var cuando = tz.TZDateTime(tz.local, ahora.year, ahora.month, ahora.day,
-        int.parse(partes[0]), int.parse(partes[1]));
+    var cuando = tz.TZDateTime(
+      tz.local,
+      ahora.year,
+      ahora.month,
+      ahora.day,
+      int.parse(partes[0]),
+      int.parse(partes[1]),
+    );
     // Avanza hasta el próximo [dia]; hoy mismo sirve si la hora aún no pasó.
     while (cuando.weekday != dia || !cuando.isAfter(ahora)) {
       cuando = cuando.add(const Duration(days: 1));
     }
     return cuando;
+  }
+
+  /// Como [_proximaInstanciaSemanal], pero salta la ocurrencia actual.
+  ///
+  /// Se usa al confirmar o posponer una toma: el recordatorio tardío de esa
+  /// ranura se cancela y se vuelve a programar para la semana siguiente, sin
+  /// perder las repeticiones futuras. [despuesDe] suele ser la hora del
+  /// recordatorio tardío que se está consumiendo.
+  tz.TZDateTime _proximaInstanciaSemanalDesde(
+    String hora,
+    int dia,
+    DateTime despuesDe,
+  ) {
+    final partes = hora.split(':');
+    final ahora = tz.TZDateTime.now(tz.local);
+    final referencia = despuesDe.isAfter(ahora)
+        ? tz.TZDateTime.from(despuesDe, tz.local)
+        : ahora;
+    var cuando = tz.TZDateTime(
+      tz.local,
+      referencia.year,
+      referencia.month,
+      referencia.day,
+      int.parse(partes[0]),
+      int.parse(partes[1]),
+    );
+    while (cuando.weekday != dia || !cuando.isAfter(referencia)) {
+      cuando = cuando.add(const Duration(days: 1));
+    }
+    return cuando;
+  }
+
+  /// Programa los tres tipos de notificación local de un horario:
+  /// alarma principal, aviso previo y recordatorio tardío.
+  ///
+  /// La felicitación no se programa: se muestra justo al confirmar.
+  Future<void> programarNotificacionesDeHorario({
+    required String tratamientoId,
+    required HorarioDia horario,
+    required String nombreMedicamento,
+  }) async {
+    await programarAlarmasDeHorario(
+      tratamientoId: tratamientoId,
+      horario: horario,
+      nombreMedicamento: nombreMedicamento,
+    );
+    await programarAvisoPrevioDeHorario(
+      tratamientoId: tratamientoId,
+      horario: horario,
+      nombreMedicamento: nombreMedicamento,
+    );
+    await programarRecordatorioTardioDeHorario(
+      tratamientoId: tratamientoId,
+      horario: horario,
+      nombreMedicamento: nombreMedicamento,
+    );
+  }
+
+  /// Aviso suave 5 minutos antes de cada toma.
+  ///
+  /// La hora y el día se desplazan juntos para que un aviso que cae en el día
+  /// anterior (p. ej. una toma del lunes a las 00:03) siga repitiéndose el
+  /// domingo a las 23:58 y no el lunes a las 23:58.
+  Future<void> programarAvisoPrevioDeHorario({
+    required String tratamientoId,
+    required HorarioDia horario,
+    required String nombreMedicamento,
+  }) async {
+    for (final dia in horario.dias) {
+      final (horaAviso, diaAviso) = desplazarHoraYDia(horario.hora, dia, -5);
+      await _plugin.zonedSchedule(
+        idDeAvisoPrevio(tratamientoId, horario.hora, dia),
+        'Tu medicina se acerca',
+        '$nombreMedicamento a las ${horario.hora}. Ve preparando tu dosis.',
+        _proximaInstanciaSemanal(horaAviso, diaAviso),
+        const NotificationDetails(
+          android: _canalAvisoPrevio,
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentSound: true,
+            presentBadge: true,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      );
+    }
+  }
+
+  /// Recordatorio tardío semanal: 15 minutos después de cada toma.
+  Future<void> programarRecordatorioTardioDeHorario({
+    required String tratamientoId,
+    required HorarioDia horario,
+    required String nombreMedicamento,
+  }) async {
+    for (final dia in horario.dias) {
+      await _programarRecordatorioTardioDia(
+        tratamientoId: tratamientoId,
+        horaOriginal: horario.hora,
+        dia: dia,
+        nombreMedicamento: nombreMedicamento,
+      );
+    }
+  }
+
+  Future<void> _programarRecordatorioTardioDia({
+    required String tratamientoId,
+    required String horaOriginal,
+    required int dia,
+    required String nombreMedicamento,
+    DateTime? despuesDe,
+  }) async {
+    final (horaTardio, diaTardio) = desplazarHoraYDia(horaOriginal, dia, 15);
+    final cuando = despuesDe == null
+        ? _proximaInstanciaSemanal(horaTardio, diaTardio)
+        : _proximaInstanciaSemanalDesde(horaTardio, diaTardio, despuesDe);
+    await _plugin.zonedSchedule(
+      idDeRecordatorioTardio(tratamientoId, horaOriginal, dia),
+      '¿Ya tomaste tu medicina?',
+      '$nombreMedicamento de las $horaOriginal sigue esperando. '
+          'Tómala y marca YA.',
+      cuando,
+      const NotificationDetails(
+        android: _canalRecordatorioTardio,
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+          presentBadge: true,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      payload: _payloadRecordatorio(tratamientoId),
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+    );
+  }
+
+  /// Recordatorio tardío puntual que se reprograma al posponer una toma.
+  ///
+  /// Es una sola ejecución: no repite semanalmente. El semanal se conserva
+  /// aparte (ver [cancelarRecordatorioTardioDeRanura]).
+  Future<void> programarRecordatorioTardioPuntual({
+    required String tratamientoId,
+    required DateTime horaProgramada,
+    required String nombreMedicamento,
+  }) async {
+    try {
+      final cuando = tz.TZDateTime.from(
+        horaProgramada.add(const Duration(minutes: 15)),
+        tz.local,
+      );
+      if (!cuando.isAfter(tz.TZDateTime.now(tz.local))) return;
+      final hora =
+          '${horaProgramada.hour.toString().padLeft(2, '0')}:'
+          '${horaProgramada.minute.toString().padLeft(2, '0')}';
+      await _plugin.zonedSchedule(
+        idDeRecordatorioTardioPospuesto(tratamientoId, horaProgramada),
+        '¿Ya tomaste tu medicina?',
+        '$nombreMedicamento de las $hora sigue esperando. '
+            'Tómala y marca YA.',
+        cuando,
+        const NotificationDetails(
+          android: _canalRecordatorioTardio,
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentSound: true,
+            presentBadge: true,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        payload: _payloadRecordatorio(tratamientoId),
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    } catch (e) {
+      debugPrint('No se pudo programar el recordatorio tardío puntual: $e');
+    }
+  }
+
+  /// Cancela el recordatorio tardío de una ranura y conserva los futuros.
+  ///
+  /// Si la ranura pertenece a un horario semanal, se cancela el recordatorio
+  /// actual y se vuelve a programar para la semana siguiente. Si es una ranura
+  /// pospuesta, solo se cancela su recordatorio puntual.
+  Future<void> cancelarRecordatorioTardioDeRanura({
+    required String tratamientoId,
+    required DateTime horaProgramada,
+    required List<HorarioDia> horarios,
+    required String nombreMedicamento,
+  }) async {
+    try {
+      await _plugin.cancel(
+        idDeRecordatorioTardioPospuesto(tratamientoId, horaProgramada),
+      );
+
+      final hora =
+          '${horaProgramada.hour.toString().padLeft(2, '0')}:'
+          '${horaProgramada.minute.toString().padLeft(2, '0')}';
+      final dia = horaProgramada.weekday;
+      HorarioDia? horario;
+      for (final h in horarios) {
+        if (h.hora == hora && h.dias.contains(dia)) {
+          horario = h;
+          break;
+        }
+      }
+      if (horario == null) return;
+
+      await _plugin.cancel(
+        idDeRecordatorioTardio(tratamientoId, horario.hora, dia),
+      );
+      await _programarRecordatorioTardioDia(
+        tratamientoId: tratamientoId,
+        horaOriginal: horario.hora,
+        dia: dia,
+        nombreMedicamento: nombreMedicamento,
+        despuesDe: horaProgramada.add(const Duration(minutes: 15)),
+      );
+    } catch (e) {
+      debugPrint('No se pudo cancelar el recordatorio tardío: $e');
+    }
+  }
+
+  /// Felicitación inmediata al confirmar una toma.
+  Future<void> mostrarFelicitacion({
+    required String tratamientoId,
+    required DateTime horaProgramada,
+  }) async {
+    try {
+      await _plugin.show(
+        idDeFelicitacion(tratamientoId, horaProgramada),
+        '¡Bien hecho!',
+        'Toma registrada. Sigue así.',
+        const NotificationDetails(
+          android: _canalFelicitaciones,
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentSound: false,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('No se pudo mostrar la felicitación: $e');
+    }
+  }
+
+  String _payloadRecordatorio(String tratamientoId) =>
+      '$_prefijoPayloadRecordatorio$tratamientoId';
+
+  /// Cancela las alarmas y los tres tipos de notificación local de un
+  /// tratamiento. Se usa al editarlo o borrarlo.
+  Future<void> cancelarNotificacionesDeTratamiento({
+    required String tratamientoId,
+    required List<HorarioDia> horarios,
+  }) async {
+    await cancelarAlarmasDeTratamiento(
+      tratamientoId: tratamientoId,
+      horarios: horarios,
+    );
+
+    final ids = <int>{};
+    for (final h in horarios) {
+      for (final dia in h.dias) {
+        ids.add(idDeAvisoPrevio(tratamientoId, h.hora, dia));
+        ids.add(idDeRecordatorioTardio(tratamientoId, h.hora, dia));
+      }
+    }
+    for (final id in ids) {
+      await _plugin.cancel(id);
+    }
+
+    // Los recordatorios puntuales de posponer llevan la hora exacta en el id,
+    // así que no se pueden recalcular. Se localizan por su payload.
+    final payload = _payloadRecordatorio(tratamientoId);
+    try {
+      final pendientes = await _plugin.pendingNotificationRequests();
+      for (final p in pendientes) {
+        if (p.payload == payload) {
+          await _plugin.cancel(p.id);
+        }
+      }
+    } catch (e) {
+      debugPrint(
+        'No se pudieron cancelar los recordatorios tardíos puntuales: $e',
+      );
+    }
   }
 
   /// Cancela todas las alarmas conocidas de un tratamiento, para no dejar
