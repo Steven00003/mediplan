@@ -98,6 +98,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// `true` mientras una alarma está en pantalla. Lo consulta también el
+  /// arranque para no abrir una segunda alarma desde una notificación.
+  bool get alarmaAbierta => _alarmaAbierta;
+
   /// Marca (desde la pantalla del paciente) que hay una alarma abierta, para que
   /// la reconciliación no declare olvidada la toma que el paciente está viendo.
   void setAlarmaAbierta(bool abierta) {

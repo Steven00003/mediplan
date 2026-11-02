@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
@@ -7,9 +9,12 @@ import 'firebase_options.dart';
 import 'providers/app_state.dart';
 import 'screens/seleccion_rol_screen.dart';
 import 'screens/doctor/dashboard_screen.dart';
+import 'screens/paciente/alarma_screen.dart';
 import 'screens/paciente/medicamentos_proximos_screen.dart';
+import 'services/firestore_service.dart';
 import 'services/notificaciones_service.dart';
 import 'services/push_service.dart';
+import 'services/ventana_alarma_service.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_logo.dart';
@@ -42,13 +47,24 @@ class BootstrapScreen extends StatefulWidget {
 
 class _BootstrapScreenState extends State<BootstrapScreen> {
   final AppState _appState = AppState();
+  final NotificacionesService _notif = NotificacionesService();
+  final FirestoreService _fs = FirestoreService();
+  final VentanaAlarmaService _ventanaAlarma = const VentanaAlarmaService();
   bool _cargando = true;
   String? _error;
+  bool _procesandoPayload = false;
 
   @override
   void initState() {
     super.initState();
+    _notif.payloadPendiente.addListener(_alCambiarPayload);
     _inicializar();
+  }
+
+  @override
+  void dispose() {
+    _notif.payloadPendiente.removeListener(_alCambiarPayload);
+    super.dispose();
   }
 
   Future<void> _inicializar() async {
@@ -63,9 +79,8 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       );
 
       // Inicializa y pide permiso para notificaciones locales de alarma.
-      final notif = NotificacionesService();
-      await notif.inicializar();
-      await notif.pedirPermiso();
+      await _notif.inicializar();
+      await _notif.pedirPermiso();
 
       // Deja listo el push paciente → cuidador. Si no hay credencial en
       // `assets/secrets/`, el push queda desactivado y la app sigue igual.
@@ -74,6 +89,9 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       await _appState.cargarEstadoInicial();
     } catch (e) {
       debugPrint('Error de inicialización de MediPlan: $e');
+      // Si la app venía de una notificación, no dejamos la ventana con los
+      // flags de alarma mientras se muestra la pantalla de error.
+      await _ventanaAlarma.desactivarFlags();
       if (mounted) {
         setState(() {
           _cargando = false;
@@ -82,7 +100,137 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       }
       return;
     }
-    if (mounted) setState(() => _cargando = false);
+    if (!mounted) return;
+    setState(() => _cargando = false);
+
+    // La alarma se abre después de que HomeRouter ya esté montado. Si el
+    // payload llegó durante el arranque, queda guardado hasta este momento.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_procesarPayloadPendiente());
+    });
+  }
+
+  void _alCambiarPayload() {
+    if (_error != null) {
+      // La app no llegó a cargar: se descarta el toque y se liberan los flags
+      // que MainActivity pudo activar al abrir la notificación.
+      _notif.tomarPayloadPendiente();
+      unawaited(_ventanaAlarma.desactivarFlags());
+      return;
+    }
+    if (_cargando || _appState.cargandoPaciente) return;
+
+    // Si ya hay una alarma en pantalla (o se está abriendo), este toque no
+    // debe abrir una segunda. Se descarta el payload.
+    if (_procesandoPayload || _appState.alarmaAbierta) {
+      _notif.tomarPayloadPendiente();
+      return;
+    }
+    unawaited(_procesarPayloadPendiente());
+  }
+
+  /// Libera los flags nativos si el payload no se puede convertir en alarma.
+  /// No los toca si ya hay otra alarma visible: esos flags son suyos.
+  Future<void> _descartarPayloadInvalido() async {
+    if (_appState.alarmaAbierta) return;
+    await _ventanaAlarma.desactivarFlags();
+  }
+
+  /// Abre la alarma indicada por el payload `tratamientoId|HH:mm`.
+  ///
+  /// Cualquier payload inválido o de otro paciente se ignora: el arranque de
+  /// la app nunca debe fallar por una notificación vieja o manipulada.
+  Future<void> _procesarPayloadPendiente() async {
+    if (_procesandoPayload ||
+        _error != null ||
+        _cargando ||
+        _appState.cargandoPaciente) {
+      return;
+    }
+
+    final pendiente = _notif.tomarPayloadPendiente();
+    if (pendiente == null) return;
+    final payload = pendiente.payload;
+
+    _procesandoPayload = true;
+    try {
+      final pacienteId = _appState.pacienteVinculado?.id;
+      final usuario = FirebaseAuth.instance.currentUser;
+      if (pacienteId == null || usuario == null || !usuario.isAnonymous) {
+        await _descartarPayloadInvalido();
+        return;
+      }
+
+      final partes = payload.split('|');
+      if (partes.length != 2) {
+        debugPrint('Payload de alarma inválido: $payload');
+        await _descartarPayloadInvalido();
+        return;
+      }
+      final tratamientoId = partes[0].trim();
+      final hora = _horaDesdePayload(partes[1].trim());
+      if (tratamientoId.isEmpty || hora == null) {
+        debugPrint('Payload de alarma inválido: $payload');
+        await _descartarPayloadInvalido();
+        return;
+      }
+
+      final tratamiento = await _fs.getTratamiento(tratamientoId);
+      if (!mounted) return;
+
+      // Solo el paciente vinculado puede abrir tratamientos suyos. Un payload
+      // con el id de otro paciente se ignora.
+      if (tratamiento == null || tratamiento.pacienteId != pacienteId) {
+        debugPrint(
+          'Alarma ignorada: el tratamiento no existe o es de otro paciente',
+        );
+        await _descartarPayloadInvalido();
+        return;
+      }
+      if (_appState.pacienteVinculado?.id != pacienteId) {
+        await _descartarPayloadInvalido();
+        return;
+      }
+      if (_appState.alarmaAbierta) return;
+
+      _appState.setAlarmaAbierta(true);
+      try {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => AlarmaScreen(
+              tratamiento: tratamiento,
+              horaProgramada: hora,
+              pacienteId: pacienteId,
+              idNotificacion: pendiente.idNotificacion,
+            ),
+          ),
+        );
+      } finally {
+        _appState.setAlarmaAbierta(false);
+      }
+    } catch (e) {
+      // Un tap sobre una notificación vieja no puede tumbar el arranque.
+      debugPrint('No se pudo abrir la alarma desde la notificación: $e');
+      await _descartarPayloadInvalido();
+    } finally {
+      _procesandoPayload = false;
+    }
+  }
+
+  TimeOfDay? _horaDesdePayload(String valor) {
+    final partes = valor.split(':');
+    if (partes.length != 2) return null;
+    final hora = int.tryParse(partes[0]);
+    final minuto = int.tryParse(partes[1]);
+    if (hora == null ||
+        minuto == null ||
+        hora < 0 ||
+        hora > 23 ||
+        minuto < 0 ||
+        minuto > 59) {
+      return null;
+    }
+    return TimeOfDay(hour: hora, minute: minuto);
   }
 
   @override

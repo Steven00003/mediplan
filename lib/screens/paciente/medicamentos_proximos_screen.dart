@@ -61,7 +61,10 @@ class _MedicamentosProximosScreenState
   /// próximos 2 minutos) y sin confirmación registrada, y abre la alarma.
   Future<void> _revisarTomas() async {
     final pacienteId = _pacienteId;
-    if (pacienteId == null || !mounted) return;
+    if (pacienteId == null || !mounted || _alarmaAbierta) return;
+    // BootstrapScreen también puede abrir la alarma desde una notificación;
+    // AppState es la fuente compartida para no mostrar dos al mismo tiempo.
+    if (context.read<AppState>().alarmaAbierta) return;
 
     final tratamientos =
         await _fs.streamTratamientosDePaciente(pacienteId).first;
@@ -95,7 +98,9 @@ class _MedicamentosProximosScreenState
       if (candidato != null) break;
     }
 
-    if (candidato != null && mounted) {
+    if (candidato != null &&
+        mounted &&
+        !context.read<AppState>().alarmaAbierta) {
       _abrirAlarma(candidato, horarioCandidato!, pacienteId);
     }
   }
@@ -109,7 +114,9 @@ class _MedicamentosProximosScreenState
     // Deja que _revisarTomas tenga oportunidad de abrir una alarma primero:
     // no queremos tapar la pantalla de alarma con este diálogo.
     await Future<void>.delayed(const Duration(milliseconds: 900));
-    if (!mounted || _alarmaAbierta) return;
+    if (!mounted || _alarmaAbierta || context.read<AppState>().alarmaAbierta) {
+      return;
+    }
 
     final notif = NotificacionesService();
     final sdk = await notif.androidSdkInt();
@@ -117,12 +124,19 @@ class _MedicamentosProximosScreenState
     if (await LocalStore.getPantallaCompletaPreguntada()) return;
 
     final puede = await notif.puedeUsarPantallaCompleta();
-    if (puede != false || !mounted || _alarmaAbierta) return;
+    if (puede != false ||
+        !mounted ||
+        _alarmaAbierta ||
+        context.read<AppState>().alarmaAbierta) {
+      return;
+    }
 
     // Se marca antes de mostrar: si la app muere mientras el paciente está en
     // Ajustes, el aviso no vuelve a aparecer.
     await LocalStore.marcarPantallaCompletaPreguntada();
-    if (!mounted || _alarmaAbierta) return;
+    if (!mounted || _alarmaAbierta || context.read<AppState>().alarmaAbierta) {
+      return;
+    }
 
     final permitir = await showDialog<bool>(
       context: context,

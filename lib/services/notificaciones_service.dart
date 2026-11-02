@@ -7,6 +7,18 @@ import 'package:timezone/timezone.dart' as tz;
 import '../models/tratamiento.dart';
 import '../utils/hash_estable.dart';
 
+/// Datos que acompañan al toque de una alarma.
+///
+/// [idNotificacion] es el id que Android le asignó a la notificación mostrada;
+/// se usa para quitarla de la barra al confirmar o posponer sin cancelar la
+/// alarma semanal que la generó.
+class PayloadAlarma {
+  final String payload;
+  final int? idNotificacion;
+
+  const PayloadAlarma(this.payload, {this.idNotificacion});
+}
+
 /// Notificaciones locales programadas para la alarma de cada medicamento.
 ///
 /// Funcionan **sin conexión**: se programan en el dispositivo para la hora
@@ -20,6 +32,16 @@ class NotificacionesService {
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
+
+  /// Payload de la última alarma tocada, pendiente de que la app termine de
+  /// arrancar y `AppState` sepa qué paciente está vinculado.
+  ///
+  /// Se usa un `ValueNotifier` porque el callback del plugin puede llegar antes
+  /// de que `BootstrapScreen` esté montado; el valor queda guardado y el
+  /// listener lo procesa cuando la app está lista.
+  final ValueNotifier<PayloadAlarma?> _payloadPendiente =
+      ValueNotifier<PayloadAlarma?>(null);
+  ValueListenable<PayloadAlarma?> get payloadPendiente => _payloadPendiente;
 
   /// Ids de los canales. Se exponen porque el AndroidManifest los referencia:
   /// las notificaciones que muestra FCM con la app en segundo plano/cerrada
@@ -73,8 +95,51 @@ class NotificacionesService {
       iOS: darwinInit,
     );
 
-    await _plugin.initialize(initSettings);
+    await _plugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: _alRecibirRespuesta,
+    );
+
+    // Si la app estaba cerrada y se abrió tocando la alarma (o por su
+    // fullScreenIntent), el payload llega por aquí, no por el callback.
+    try {
+      final lanzamiento = await _plugin.getNotificationAppLaunchDetails();
+      if (lanzamiento?.didNotificationLaunchApp ?? false) {
+        final respuesta = lanzamiento?.notificationResponse;
+        _registrarPayload(
+          respuesta?.payload,
+          idNotificacion: respuesta?.id,
+        );
+      }
+    } catch (e) {
+      debugPrint('No se pudo leer el lanzamiento por notificación: $e');
+    }
+
     await _crearCanales();
+  }
+
+  /// Recibe el toque de una notificación con la app ya en marcha.
+  void _alRecibirRespuesta(NotificationResponse respuesta) {
+    _registrarPayload(
+      respuesta.payload,
+      idNotificacion: respuesta.id,
+    );
+  }
+
+  void _registrarPayload(String? payload, {int? idNotificacion}) {
+    final limpio = payload?.trim();
+    if (limpio == null || limpio.isEmpty) return;
+    _payloadPendiente.value = PayloadAlarma(
+      limpio,
+      idNotificacion: idNotificacion,
+    );
+  }
+
+  /// Devuelve el payload pendiente y lo borra para no abrirlo dos veces.
+  PayloadAlarma? tomarPayloadPendiente() {
+    final payload = _payloadPendiente.value;
+    _payloadPendiente.value = null;
+    return payload;
   }
 
   /// Fija `tz.local` en la zona IANA real del dispositivo.

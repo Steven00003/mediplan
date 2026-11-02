@@ -9,6 +9,7 @@ import '../../services/imagen_service.dart';
 import '../../services/notificaciones_service.dart';
 import '../../services/push_service.dart';
 import '../../services/sensores_service.dart';
+import '../../services/ventana_alarma_service.dart';
 import '../../theme/app_colors.dart';
 
 /// Pantalla de alarma del Paciente.
@@ -24,6 +25,9 @@ class AlarmaScreen extends StatefulWidget {
   final TimeOfDay horaProgramada;
   final String pacienteId;
 
+  /// Id de la notificación que abrió esta alarma, si vino de un toque.
+  final int? idNotificacion;
+
   /// A partir de este atraso la toma se registra como "tardó" en vez de "tomó".
   static const Duration _plazoTardio = Duration(minutes: 15);
 
@@ -32,6 +36,7 @@ class AlarmaScreen extends StatefulWidget {
     required this.tratamiento,
     required this.horaProgramada,
     required this.pacienteId,
+    this.idNotificacion,
   });
 
   @override
@@ -44,9 +49,11 @@ class _AlarmaScreenState extends State<AlarmaScreen>
   final SensoresService _sensores = SensoresService();
   final NotificacionesService _notif = NotificacionesService();
   final PushService _push = PushService();
+  final VentanaAlarmaService _ventana = const VentanaAlarmaService();
 
   Timer? _vibracionTimer;
   bool _procesando = false;
+  bool _flagsVentanaDesactivados = false;
 
   DateTime get _horaProgramada {
     final now = DateTime.now();
@@ -72,6 +79,9 @@ class _AlarmaScreenState extends State<AlarmaScreen>
     _vibracionTimer?.cancel();
     _sensores.detenerVibracion();
     _sensores.restaurarBrillo();
+    // También cubre la salida con el botón Atrás, que no pasa por
+    // `_limpiarYSalir`.
+    unawaited(_desactivarFlagsVentana());
     super.dispose();
   }
 
@@ -134,7 +144,7 @@ _sensores.vibrarFuerteYContinuo();
       estado: estado,
     ));
 
-    _limpiarYSalir();
+    await _limpiarYSalir();
   }
 
   /// "Recordar": registra como pospuesta y reprograma la alarma en 5 minutos.
@@ -167,14 +177,58 @@ _sensores.vibrarFuerteYContinuo();
       payload: '${widget.tratamiento.id}|${_pad(hora.hour)}:${_pad(hora.minute)}',
     );
 
-    _limpiarYSalir();
+    await _limpiarYSalir();
   }
 
-  void _limpiarYSalir() {
+  Future<void> _limpiarYSalir() async {
     _vibracionTimer?.cancel();
     _sensores.detenerVibracion();
     _sensores.restaurarBrillo();
+    await _cancelarNotificacionAlarma();
+    await _desactivarFlagsVentana();
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// Quita de la barra la notificación que abrió la alarma.
+  ///
+  /// Se cancelan también los ids reproducibles del mismo horario porque, si la
+  /// alarma se abrió desde la pantalla del paciente, no hay un
+  /// `idNotificacion` de respuesta. Cancelar el id de la notificación no borra
+  /// la alarma semanal: eso se hace con `NotificacionesService.cancelar...`.
+  Future<void> _cancelarNotificacionAlarma() async {
+    final ids = <int>{};
+    if (widget.idNotificacion != null && widget.idNotificacion! > 0) {
+      ids.add(widget.idNotificacion!);
+    }
+
+    final horarios = widget.tratamiento.horarios;
+    for (var i = 0; i < horarios.length; i++) {
+      final horario = horarios[i];
+      if (horario.hora != _horaTxt) continue;
+      for (final dia in horario.dias) {
+        ids.add(
+          NotificacionesService.idDeAlarma(
+            widget.tratamiento.id,
+            horario.hora,
+            dia,
+          ),
+        );
+      }
+      // Ids de versiones anteriores, por si la notificación ya estaba viva.
+      final idAntiguo = (widget.tratamiento.id.hashCode ^ i) & 0x7FFFFFFF;
+      if (idAntiguo >= 1) ids.add(idAntiguo);
+    }
+
+    // "Recordar" usa un id fijo por tratamiento.
+    ids.add((widget.tratamiento.id.hashCode & 0x7FFFFFFF) + 1);
+
+    await _ventana.cancelarNotificaciones(ids);
+  }
+
+  Future<void> _desactivarFlagsVentana() async {
+    if (_flagsVentanaDesactivados) return;
+    _flagsVentanaDesactivados = true;
+    await _ventana.desactivarFlags();
   }
 
   String _pad(int n) => n.toString().padLeft(2, '0');

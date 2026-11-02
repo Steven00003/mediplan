@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -23,6 +25,24 @@ class MainActivity : FlutterActivity() {
         const val METODO_VERSION = "androidVersion"
         const val METODO_ZONA_HORARIA = "timeZoneId"
         const val METODO_PUEDE_PANTALLA_COMPLETA = "canUseFullScreenIntent"
+
+        // Flags de ventana para que la alarma se vea sobre el bloqueo.
+        const val CANAL_VENTANA_ALARMA = "com.mediplan.mediplan/ventana_alarma"
+        const val METODO_DESACTIVAR_FLAGS = "desactivarFlags"
+        const val METODO_CANCELAR_NOTIFICACIONES = "cancelarNotificaciones"
+        const val ACCION_SELECT_NOTIFICATION = "SELECT_NOTIFICATION"
+        const val EXTRA_PAYLOAD = "payload"
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        activarFlagsDeAlarmaSiCorresponde(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        activarFlagsDeAlarmaSiCorresponde(intent)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -60,6 +80,68 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CANAL_VENTANA_ALARMA)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    METODO_DESACTIVAR_FLAGS -> {
+                        desactivarFlagsDeAlarma()
+                        result.success(null)
+                    }
+                    METODO_CANCELAR_NOTIFICACIONES -> {
+                        val ids = call.argument<List<Int>>("ids").orEmpty()
+                        cancelarNotificaciones(ids)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * Si la actividad se abrió desde la notificación de una alarma, permite
+     * mostrarla sobre el bloqueo y enciende la pantalla. Se detecta por la
+     * acción y el payload que pone flutter_local_notifications; las alertas del
+     * cuidador no llevan payload y no activan estos flags.
+     */
+    private fun activarFlagsDeAlarmaSiCorresponde(intent: Intent?) {
+        if (!esIntentoDeAlarma(intent)) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+            )
+        }
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    private fun esIntentoDeAlarma(intent: Intent?): Boolean {
+        if (intent?.action != ACCION_SELECT_NOTIFICATION) return false
+        return !intent.getStringExtra(EXTRA_PAYLOAD).isNullOrBlank()
+    }
+
+    private fun desactivarFlagsDeAlarma() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(false)
+            setTurnScreenOn(false)
+        }
+        window.clearFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+        )
+    }
+
+    /** Cancela la notificación mostrada, pero no la alarma semanal programada. */
+    private fun cancelarNotificaciones(ids: List<Int>) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        for (id in ids.distinct()) {
+            manager.cancel(id)
+        }
     }
 
     /** Equivale a Settings.System.canWrite(context): requiere WRITE_SETTINGS. */
