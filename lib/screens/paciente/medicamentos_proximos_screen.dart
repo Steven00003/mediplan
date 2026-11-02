@@ -389,10 +389,9 @@ class _MedicamentosProximosScreenState
   }
 
   /// Salida oculta: solo toque largo con confirmación. Queda bloqueado el
-  /// gesto/flecha de atrás (PopScope). Solo limpia el estado local y cierra la
-  /// sesión anónima; el documento en Firestore no se modifica (las reglas no lo
-  /// permiten para el paciente), así que el cuidador debe liberar el código
-  /// para que se pueda volver a vincular.
+  /// gesto/flecha de atrás (PopScope). No cierra la sesión anónima: conserva el
+  /// UID para poder reingresar sin código desde la selección de rol. El
+  /// documento en Firestore no se modifica; solo el cuidador puede desvincular.
   Future<void> _mostrarDialogoSalida() async {
     final appState = context.read<AppState>();
     final salir = await showDialog<bool>(
@@ -400,8 +399,9 @@ class _MedicamentosProximosScreenState
       builder: (ctx) => AlertDialog(
         title: const Text('Salir del modo paciente'),
         content: const Text(
-          'Esto desvincula este teléfono. El cuidador tendrá que liberar el '
-          'código para volver a vincularlo.',
+          'Esto cierra el modo paciente en este teléfono. Podrás volver a '
+          'entrar sin escribir el código mientras el cuidador no desvincule '
+          'el dispositivo.',
         ),
         actionsAlignment: MainAxisAlignment.center,
         actions: [
@@ -427,7 +427,7 @@ class _MedicamentosProximosScreenState
       ),
     );
     if (salir == true && mounted) {
-      await appState.desvincularPaciente();
+      await appState.salirDelModoPaciente();
     }
   }
 

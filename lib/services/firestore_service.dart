@@ -7,6 +7,15 @@ import '../models/paciente.dart';
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
 
+/// El código existe, pero el paciente ya está vinculado a otro UID.
+///
+/// Se lanza solo cuando Firestore rechaza el `update` por permisos; un fallo de
+/// red se propaga como `FirebaseException` para que la UI muestre un mensaje
+/// distinto.
+class DispositivoVinculadoAOtroException implements Exception {
+  const DispositivoVinculadoAOtroException();
+}
+
 /// Capa de acceso a Firestore.
 ///
 /// Toda operación depende de las reglas de seguridad (ver `firestore.rules` en la raíz):
@@ -176,6 +185,20 @@ class FirestoreService {
               .map((d) => Tratamiento.fromMap(d.id, d.data()))
               .toList(),
         );
+  }
+
+  /// Lectura puntual de los tratamientos, usada al reprogramar alarmas tras
+  /// reingresar como paciente.
+  Future<List<Tratamiento>> getTratamientosDePaciente(
+    String pacienteId, {
+    GetOptions? options,
+  }) async {
+    final snap = await _tratamientosCollection()
+        .where('pacienteId', isEqualTo: pacienteId)
+        .get(options);
+    return snap.docs
+        .map((d) => Tratamiento.fromMap(d.id, d.data()))
+        .toList();
   }
 
   Future<String> crearTratamiento(Tratamiento tratamiento) async {
@@ -427,6 +450,31 @@ class FirestoreService {
   // Código de vinculación
   // ---------------------------------------------------------------------
 
+  /// Devuelve el paciente solo si el servidor confirma que está vinculado a
+  /// [uid].
+  ///
+  /// Se usa al reingresar con una vinculación recordada y al escribir de nuevo
+  /// un código que ya pertenece a este mismo dispositivo. Es una *query* con
+  /// filtro `dispositivoVinculadoId == uid` (no un `get()` directo) porque así
+  /// la regla de lectura puede demostrar que el resultado es del propio UID; si
+  /// el paciente ya está vinculado a otro, la query devuelve vacío sin generar
+  /// un `permission-denied`.
+  Future<Paciente?> getPacienteVinculadoParaReingreso(
+    String pacienteId,
+    String uid, {
+    Source source = Source.server,
+  }) async {
+    final snap = await _pacientesCollection()
+        .where('dispositivoVinculadoId', isEqualTo: uid)
+        .get(GetOptions(source: source));
+    for (final doc in snap.docs) {
+      if (doc.id == pacienteId) {
+        return Paciente.fromMap(doc.id, doc.data());
+      }
+    }
+    return null;
+  }
+
   /// Busca, entre los pacientes del cuidador [uid], el que tiene este código de
   /// vinculación. Devuelve null si no existe.
   ///
@@ -451,17 +499,16 @@ class FirestoreService {
   /// Vincula este dispositivo anónimo al paciente cuyo código coincide, usando
   /// escritura directa a Firestore (sin Cloud Functions).
   ///
-  /// Resuelve el código en `/vinculos` y va **directo** al `update` de
-  /// `pacientes/{id}`, sin leer el documento antes: la rama de `update` de las
-  /// reglas valida por sí sola que el documento esté libre (`estaLibre`), que el
-  /// UID asignado sea el del escritor y que `codigoVinculacion`/`cuidadorId` no
-  /// cambien. Una lectura previa daría `permission-denied`: el dispositivo
-  /// anónimo todavía no es el dueño del documento.
+  /// Resuelve el código en `/vinculos` y:
+  ///  1. Si el paciente ya está vinculado a este mismo UID, lo devuelve sin
+  ///     escribir. Esto permite reingresar escribiendo de nuevo el código.
+  ///  2. Si no, intenta el `update`. Las reglas solo lo permiten cuando el
+  ///     campo está libre y el UID asignado es el del escritor. Si Firestore
+  ///     responde `permission-denied`, el código pertenece a otro dispositivo y
+  ///     se lanza [DispositivoVinculadoAOtroException].
   ///
-  /// Devuelve el paciente leído **después** del update exitoso — en ese punto
-  /// el dispositivo ya es `esDispositivoVinculado` y sí puede leer la ficha —
-  /// o null si el código no existe o el update es rechazado (el documento ya
-  /// estaba vinculado a otro dispositivo).
+  /// No se hace un `get()` directo antes del update: el dispositivo anónimo
+  /// todavía no es el dueño del documento y la regla de lectura lo rechazaría.
   Future<Paciente?> vincularDispositivoPorCodigo(
     String codigo,
     String uid,
@@ -472,12 +519,27 @@ class FirestoreService {
     final pacienteId = vinculo.data()?['pacienteId'] as String?;
     if (pacienteId == null || pacienteId.isEmpty) return null;
 
+    // Caso reingreso: el código ya apunta a un paciente que este mismo UID
+    // tiene vinculado. No se toca el documento (la regla de update exige que
+    // esté libre).
+    final yaVinculado = await getPacienteVinculadoParaReingreso(
+      pacienteId,
+      uid,
+      source: Source.server,
+    );
+    if (yaVinculado != null) return yaVinculado;
+
     try {
       await _pacientesCollection().doc(pacienteId).update({
         'dispositivoVinculadoId': uid,
       });
-    } catch (_) {
-      return null;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        // El campo ya está lleno con otro UID (o las reglas lo rechazaron).
+        throw const DispositivoVinculadoAOtroException();
+      }
+      if (e.code == 'not-found') return null;
+      rethrow;
     }
 
     Paciente? leido;

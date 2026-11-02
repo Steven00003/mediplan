@@ -91,15 +91,25 @@ class VinculacionService {
     }
 
     final normalizado = codigo.trim().toUpperCase();
-    final Paciente? paciente = await _fs.vincularDispositivoPorCodigo(
-      normalizado,
-      uid,
-    );
+    final Paciente? paciente;
+    try {
+      paciente = await _fs.vincularDispositivoPorCodigo(normalizado, uid);
+    } on DispositivoVinculadoAOtroException {
+      return 'Este código ya está vinculado a otro dispositivo. '
+          'Pide al cuidador que lo desvincule.';
+    }
     if (paciente == null) {
-      return 'Código inválido o ya vinculado a otro dispositivo. Revisa el código.';
+      return 'Código inválido. Revisa el código.';
     }
 
     await LocalStore.guardarPacienteVinculado(paciente.id, paciente.nombre);
+    await LocalStore.guardarUltimaVinculacion(
+      pacienteId: paciente.id,
+      codigo: paciente.codigoVinculacion.trim().isNotEmpty
+          ? paciente.codigoVinculacion
+          : normalizado,
+      nombre: paciente.nombre,
+    );
     return null;
   }
 

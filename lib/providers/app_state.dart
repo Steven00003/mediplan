@@ -12,6 +12,7 @@ import '../services/omitidas_service.dart';
 import '../services/notificaciones_service.dart';
 import '../services/push_service.dart';
 import '../services/vinculacion_service.dart';
+import '../utils/reingreso_paciente.dart';
 
 /// Mantiene el estado global de la app según el rol en uso.
 ///
@@ -170,8 +171,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         options: const GetOptions(source: Source.server),
       );
     } catch (e) {
-      // Fallback explícito a caché local si no hay conexión o el servidor no responde.
-      // Este es un camino de borde, no el camino normal.
+      // Una señal definitiva (permisos) manda aunque haya caché: el cuidador
+      // pudo desvincular el dispositivo y no queremos seguir mostrando datos
+      // viejos. Solo los errores de red caen al fallback de caché.
+      if (_esErrorDefinitivo(e)) {
+        await desvincularPaciente();
+        return false;
+      }
       try {
         paciente = await _fs.getPaciente(
           pacienteId,
@@ -179,15 +185,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         );
         leidoDelServidor = false;
       } catch (_) {
-        if (_esErrorDefinitivo(e)) {
-          await desvincularPaciente();
-          return false;
-        }
-        // Error definitivo detectado en el primer intento o sin datos en caché.
-        if (_esErrorDefinitivo(e)) {
-          await desvincularPaciente();
-          return false;
-        }
         // Error de red/unavailable y sin caché usable: no desvinculamos.
         // El paciente sigue con sus medicamentos y alarmas usando datos locales.
         leidoDelServidor = false;
@@ -214,6 +211,15 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         await desvincularPaciente();
         return false;
       }
+      // Mantener fresca la vinculación recordada con los datos del servidor.
+      final recordada = await LocalStore.getUltimaVinculacion();
+      await LocalStore.guardarUltimaVinculacion(
+        pacienteId: paciente.id,
+        codigo: paciente.codigoVinculacion.trim().isNotEmpty
+            ? paciente.codigoVinculacion
+            : (recordada?.codigo ?? ''),
+        nombre: paciente.nombre,
+      );
     }
 
     _pacienteVinculado = paciente;
@@ -259,6 +265,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Establece el paciente vinculado tras un código válido.
   Future<void> establecerPaciente(Paciente paciente) async {
     await LocalStore.guardarPacienteVinculado(paciente.id, paciente.nombre);
+    if (paciente.codigoVinculacion.trim().isNotEmpty) {
+      await LocalStore.guardarUltimaVinculacion(
+        pacienteId: paciente.id,
+        codigo: paciente.codigoVinculacion,
+        nombre: paciente.nombre,
+      );
+    }
     _pacienteVinculado = paciente;
     _omitidas.invalidar();
     _arrancarTimerOmitidas();
@@ -279,23 +292,179 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// Desvincula el dispositivo: limpia el estado local, cancela las alarmas y
-  /// cierra la sesión anónima (solo si es la sesión activa). El documento en
-  /// Firestore NO se toca: el paciente no puede desvincularse solo (reglas),
-  /// solo el cuidador dueño puede liberarlo desde el dashboard.
-  Future<void> desvincularPaciente() async {
+  /// Salida del modo paciente **sin cerrar la sesión anónima**.
+  ///
+  /// Conservar el UID es lo que permite que "Continuar como paciente" valide
+  /// contra el servidor y vuelva a entrar sin pedir el código. Guarda la última
+  /// vinculación en una clave separada del flag de paciente activo y cancela
+  /// las alarmas/notificaciones locales de este dispositivo.
+  Future<void> salirDelModoPaciente() async {
+    final paciente = _pacienteVinculado;
+    if (paciente != null) {
+      final recordada = await LocalStore.getUltimaVinculacion();
+      await LocalStore.guardarUltimaVinculacion(
+        pacienteId: paciente.id,
+        codigo: paciente.codigoVinculacion.trim().isNotEmpty
+            ? paciente.codigoVinculacion
+            : (recordada?.codigo ?? ''),
+        nombre: paciente.nombre.trim().isNotEmpty
+            ? paciente.nombre
+            : (recordada?.nombre ?? ''),
+      );
+    }
+    await _limpiarPacienteLocal(
+      borrarRecordada: false,
+      cerrarSesionAnonima: false,
+    );
+  }
+
+  /// Reingresa con la vinculación recordada, validando contra el servidor que
+  /// `pacientes/{id}.dispositivoVinculadoId` sigue siendo el UID actual.
+  ///
+  /// No hace un `get()` directo a un documento que las reglas podrían rechazar:
+  /// usa una query filtrada por `dispositivoVinculadoId == uid`, condición que
+  /// la regla de lectura puede comprobar. Si el servidor ya no lo reconoce,
+  /// borra la vinculación recordada y vuelve a la selección de rol sin lanzar
+  /// errores técnicos a la UI.
+  Future<ResultadoReingresoPaciente> reingresarPaciente() async {
+    final recordada = await LocalStore.getUltimaVinculacion();
+    if (recordada == null || !recordada.esValida) {
+      return ResultadoReingresoPaciente.sinVinculacionRecordada;
+    }
+
+    try {
+      await VinculacionService().asegurarSesionAnonima();
+    } catch (_) {
+      return ResultadoReingresoPaciente.errorRed;
+    }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return ResultadoReingresoPaciente.errorRed;
+
+    try {
+      final paciente = await _fs.getPacienteVinculadoParaReingreso(
+        recordada.pacienteId,
+        uid,
+        source: Source.server,
+      );
+      if (paciente == null || paciente.dispositivoVinculadoId != uid) {
+        await _limpiarPacienteLocal(
+          borrarRecordada: true,
+          cerrarSesionAnonima: false,
+        );
+        return ResultadoReingresoPaciente.noCoincide;
+      }
+
+      await _activarPaciente(paciente, codigoRecordado: recordada.codigo);
+      // Se reprograman todas las alarmas después de validar; si falla la
+      // consulta de tratamientos, el reingreso no se pierde.
+      await _programarAlarmasDePaciente(paciente.id);
+      return ResultadoReingresoPaciente.exito;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        await _limpiarPacienteLocal(
+          borrarRecordada: true,
+          cerrarSesionAnonima: false,
+        );
+        return ResultadoReingresoPaciente.noCoincide;
+      }
+      // Red/timeout: se conserva la vinculación recordada para reintentar.
+      return ResultadoReingresoPaciente.errorRed;
+    } catch (_) {
+      return ResultadoReingresoPaciente.errorRed;
+    }
+  }
+
+  /// Deja al paciente activo y persiste la vinculación recordada.
+  Future<void> _activarPaciente(
+    Paciente paciente, {
+    required String codigoRecordado,
+  }) async {
+    await LocalStore.guardarPacienteVinculado(paciente.id, paciente.nombre);
+    await LocalStore.guardarUltimaVinculacion(
+      pacienteId: paciente.id,
+      codigo: paciente.codigoVinculacion.trim().isNotEmpty
+          ? paciente.codigoVinculacion
+          : codigoRecordado,
+      nombre: paciente.nombre,
+    );
+
+    _pacienteVinculado = paciente;
+    _omitidas.invalidar();
+    _arrancarTimerOmitidas();
+    unawaited(_reconciliarOmitidas(forzar: true));
+    _escucharPacienteDoc(paciente.id);
+    notifyListeners();
+  }
+
+  /// Cancela las alarmas locales y vuelve a programar todas las del paciente.
+  ///
+  /// Es best-effort: si la lectura de tratamientos falla, no se cancelan las
+  /// alarmas existentes y el reingreso sigue siendo válido.
+  Future<void> _programarAlarmasDePaciente(String pacienteId) async {
+    try {
+      final tratamientos = await _fs.getTratamientosDePaciente(
+        pacienteId,
+        options: const GetOptions(source: Source.server),
+      );
+      await _notif.cancelarTodas();
+      for (final tratamiento in tratamientos) {
+        for (final horario in tratamiento.horarios) {
+          try {
+            await _notif.programarAlarmasDeHorario(
+              tratamientoId: tratamiento.id,
+              horario: horario,
+              nombreMedicamento: tratamiento.nombreMedicamento,
+            );
+          } catch (e) {
+            debugPrint(
+              'No se pudo programar una alarma de ${tratamiento.id}: $e',
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('No se pudieron reprogramar las alarmas: $e');
+    }
+  }
+
+  /// Limpia el paciente de la memoria y del almacenamiento local.
+  ///
+  /// [borrarRecordada] distingue la salida normal (se conserva) de la
+  /// desvinculación definitiva o de una vinculación que ya no coincide.
+  /// [cerrarSesionAnonima] solo se usa en la desvinculación definitiva: la
+  /// salida normal conserva el UID para poder reingresar.
+  Future<void> _limpiarPacienteLocal({
+    required bool borrarRecordada,
+    required bool cerrarSesionAnonima,
+  }) async {
     await _pacienteSub?.cancel();
     _pacienteSub = null;
     await LocalStore.limpiarPacienteVinculado();
+    if (borrarRecordada) {
+      await LocalStore.limpiarUltimaVinculacion();
+    }
     await _notif.cancelarTodas();
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null && user.isAnonymous) {
-      await FirebaseAuth.instance.signOut();
+    if (cerrarSesionAnonima) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null && user.isAnonymous) {
+        await FirebaseAuth.instance.signOut();
+      }
     }
     _pacienteVinculado = null;
     _alarmaAbierta = false;
     _pararTimerOmitidas();
     _omitidas.invalidar();
+    _olvidadasAvisadas.clear();
     notifyListeners();
+  }
+
+  /// Desvinculación definitiva (doc borrado, UID distinto o permiso denegado):
+  /// borra también la vinculación recordada, como antes, para que no se ofrezca
+  /// un reingreso que el servidor ya no reconoce.
+  Future<void> desvincularPaciente() async {
+    await _limpiarPacienteLocal(
+      borrarRecordada: true,
+      cerrarSesionAnonima: true,
+    );
   }
 }

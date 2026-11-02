@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/reingreso_paciente.dart';
+
 /// Almacenamiento local persistente del dispositivo del paciente.
 ///
 /// El vínculo dispositivo-paciente debe sobrevivir reinicios del teléfono,
@@ -10,6 +12,13 @@ class LocalStore {
   static const _kPacienteId = 'paciente_id';
   static const _kPacienteNombre = 'paciente_nombre';
   static const _kPantallaCompletaPreguntada = 'pantalla_completa_preguntada';
+
+  // Vinculación recordada: sobrevive a la salida del modo paciente para poder
+  // ofrecer "Continuar como paciente" sin volver a escribir el código. Es una
+  // clave independiente del flag de paciente activo (`paciente_id`).
+  static const _kUltimoPacienteId = 'ultima_vinculacion_paciente_id';
+  static const _kUltimoCodigo = 'ultima_vinculacion_codigo';
+  static const _kUltimoNombre = 'ultima_vinculacion_nombre';
 
   /// Genera (la primera vez) o recupera el identificador estable de este
   /// dispositivo. Se usa como `dispositivoVinculadoId` en Firestore.
@@ -43,6 +52,39 @@ class LocalStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kPacienteId);
     await prefs.remove(_kPacienteNombre);
+  }
+
+  /// Guarda la última vinculación para ofrecer "Continuar como paciente".
+  ///
+  /// No toca el flag de paciente activo: al salir se borra ese flag, pero esta
+  /// ficha se conserva.
+  static Future<void> guardarUltimaVinculacion({
+    required String pacienteId,
+    required String codigo,
+    required String nombre,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kUltimoPacienteId, pacienteId);
+    await prefs.setString(_kUltimoCodigo, codigo.trim().toUpperCase());
+    await prefs.setString(_kUltimoNombre, nombre);
+  }
+
+  static Future<VinculacionRecordada?> getUltimaVinculacion() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pacienteId = prefs.getString(_kUltimoPacienteId);
+    if (pacienteId == null || pacienteId.trim().isEmpty) return null;
+    return VinculacionRecordada(
+      pacienteId: pacienteId,
+      codigo: prefs.getString(_kUltimoCodigo) ?? '',
+      nombre: prefs.getString(_kUltimoNombre) ?? '',
+    );
+  }
+
+  static Future<void> limpiarUltimaVinculacion() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kUltimoPacienteId);
+    await prefs.remove(_kUltimoCodigo);
+    await prefs.remove(_kUltimoNombre);
   }
 
   /// ¿Ya se mostró el diálogo del permiso de pantalla completa?

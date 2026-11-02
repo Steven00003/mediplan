@@ -7,13 +7,19 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:mediplan/screens/seleccion_rol_screen.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('La pantalla de rol muestra Paciente y Doctor',
       (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(home: SeleccionRolScreen()));
+    await tester.pumpAndSettle();
 
     expect(find.text('MediPlan'), findsOneWidget);
     expect(find.text('Paciente'), findsOneWidget);
