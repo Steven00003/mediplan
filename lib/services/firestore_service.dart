@@ -446,6 +446,40 @@ class FirestoreService {
         );
   }
 
+  /// Últimos registros de un tratamiento dentro de los últimos [dias] días.
+  ///
+  /// Reutiliza la misma forma de consulta que [streamTomasPendientesHoy]:
+  /// igualdad en `pacienteId` y `tratamientoId` + rango en `horaProgramada`.
+  /// Esa combinación ya está cubierta por el índice compuesto
+  /// `(pacienteId, tratamientoId, horaProgramada)` que usa la app; no hace
+  /// falta un índice nuevo. No se ordena en Firestore para no pedir una
+  /// variante DESC: se ordena y recorta en memoria (máximo [limite] filas).
+  Future<List<RegistroToma>> getHistorialDeTratamiento(
+    String pacienteId,
+    String tratamientoId, {
+    DateTime? ahora,
+    int dias = 7,
+    int limite = 10,
+  }) async {
+    final referencia = ahora ?? DateTime.now();
+    final inicio = DateTime(
+      referencia.year,
+      referencia.month,
+      referencia.day,
+    ).subtract(Duration(days: dias - 1));
+
+    final snap = await _registrosCollection()
+        .where('pacienteId', isEqualTo: pacienteId)
+        .where('tratamientoId', isEqualTo: tratamientoId)
+        .where('horaProgramada', isGreaterThanOrEqualTo: inicio)
+        .get();
+
+    final registros =
+        snap.docs.map((d) => RegistroToma.fromMap(d.id, d.data())).toList()
+          ..sort((a, b) => b.horaProgramada.compareTo(a.horaProgramada));
+    return registros.take(limite).toList();
+  }
+
   // ---------------------------------------------------------------------
   // Código de vinculación
   // ---------------------------------------------------------------------
