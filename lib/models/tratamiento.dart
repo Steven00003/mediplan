@@ -48,6 +48,8 @@ class HorarioDia {
 /// [fechaInicio] es la fecha local (sin hora) desde la que cuenta el tratamiento.
 /// `null` en documentos antiguos significa "inicio desconocido"; no se calcula
 /// tiempo restante ni finalización hasta que el cuidador los edite y guarde.
+/// [ultimoAvisoSinTomas] es la fecha local del último push de "5 días sin tomas"
+/// enviado al cuidador. Se usa para no repetir el aviso el mismo día.
 /// [fotoBase64] es la foto real del medicamento codificada en base64 (con data
 /// URI) y guardada dentro del propio documento de Firestore, mostrada en la
 /// pantalla de alarma.
@@ -62,6 +64,7 @@ class Tratamiento {
   final String? duracion;
   final DateTime? fechaInicio;
   final int? duracionDias;
+  final DateTime? ultimoAvisoSinTomas;
 
   const Tratamiento({
     required this.id,
@@ -74,6 +77,7 @@ class Tratamiento {
     this.duracion,
     this.fechaInicio,
     this.duracionDias,
+    this.ultimoAvisoSinTomas,
   });
 
   factory Tratamiento.fromMap(String id, Map<String, dynamic> map) {
@@ -89,6 +93,7 @@ class Tratamiento {
       duracion: map['duracion'] as String?,
       fechaInicio: _parseFecha(map['fechaInicio']),
       duracionDias: _parseEnteroPositivo(map['duracionDias']),
+      ultimoAvisoSinTomas: _parseFecha(map['ultimoAvisoSinTomas']),
     );
   }
 
@@ -144,6 +149,7 @@ class Tratamiento {
       'duracion': duracion,
       'fechaInicio': fechaInicio,
       'duracionDias': duracionDias,
+      'ultimoAvisoSinTomas': ultimoAvisoSinTomas,
     };
   }
 }

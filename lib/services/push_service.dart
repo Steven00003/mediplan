@@ -8,7 +8,6 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
 
-import '../models/registro_toma.dart';
 import 'firestore_service.dart';
 import 'notificaciones_service.dart';
 
@@ -155,16 +154,15 @@ class PushService {
     }
   }
 
-  /// Lado paciente: avisa al cuidador de que se confirmó (o pospuso) una toma,
-  /// o de que se marcó como olvidada por la reconciliación (`AppState`).
+  /// Lado paciente: avisa al cuidador de que un tratamiento lleva 5 días
+  /// programados sin ninguna toma confirmada.
   ///
-  /// Se llama con `unawaited(...)` y nunca lanza: la toma ya quedó registrada en
-  /// Firestore, que es la fuente de verdad; el push es solo el extra.
-  Future<void> notificarConfirmacion({
+  /// Es el **único** envío FCM al cuidador. Se llama con `unawaited(...)` y
+  /// nunca lanza: el aviso ya quedó marcado en Firestore, que es la fuente de
+  /// verdad; el push es solo el extra.
+  Future<void> notificarAlertaSinTomas({
     required String pacienteId,
     required String nombreMedicamento,
-    required String hora,
-    required EstadoToma estado,
   }) async {
     if (!_pushHabilitado) return;
     try {
@@ -175,7 +173,6 @@ class PushService {
       final cliente = await _clienteAutenticado();
       if (cliente == null) return;
 
-      final (titulo, verbo) = _textoDeEstado(estado);
       final respuesta = await cliente
           .post(
             Uri.parse(
@@ -186,9 +183,11 @@ class PushService {
               'message': {
                 'token': token,
                 'notification': {
-                  'title': titulo,
+                  'title': '5 días sin tomas',
                   'body':
-                      '${paciente.nombre} $verbo: $nombreMedicamento ($hora)',
+                      '${paciente.nombre} no ha confirmado ninguna toma de '
+                      '$nombreMedicamento en sus últimos 5 días con toma '
+                      'programada.',
                 },
                 'android': {
                   'priority': 'high',
@@ -197,8 +196,8 @@ class PushService {
                   },
                 },
                 'data': {
+                  'tipo': 'alerta_sin_tomas',
                   'pacienteId': pacienteId,
-                  'estado': estado.nombre,
                 },
               },
             }),
@@ -228,19 +227,6 @@ class PushService {
       // Sin red o credencial inválida: se reintenta en el próximo envío.
       debugPrint('FCM: no se pudo obtener el token OAuth2: $e');
       return null;
-    }
-  }
-
-  (String, String) _textoDeEstado(EstadoToma estado) {
-    switch (estado) {
-      case EstadoToma.tardia:
-        return ('Toma tardía', 'confirmó tarde');
-      case EstadoToma.pospuesta:
-        return ('Toma pospuesta', 'pospuso');
-      case EstadoToma.olvidada:
-        return ('Toma olvidada', 'no tomó');
-      default:
-        return ('Toma confirmada', 'confirmó');
     }
   }
 }

@@ -20,14 +20,13 @@ import 'nuevo_paciente_screen.dart';
 ///
 /// Escucha en tiempo real la colección `registrosToma` de sus pacientes y:
 ///  - refleja automáticamente los cambios de estado (tomada/pospuesta/olvidada),
-///  - muestra una notificación local al cuidador con la app visible: una por
-///    cada confirmación, y las olvidadas agrupadas en un solo resumen por
-///    emisión. Con la app en segundo plano/cerrada el aviso lo pone FCM (ver
-///    `PushService`); avisar aquí también daría duplicados. Sin credencial de
-///    push este listener es la única vía y se muestra igual.
+///  - muestra una notificación local al cuidador mientras la app está visible:
+///    una por cada confirmación, y las olvidadas agrupadas en un solo resumen
+///    por emisión. FCM ya no envía confirmaciones: solo se usa para la alerta
+///    de 5 días sin tomas (ver `PushService`).
 ///
 /// Además registra el token FCM de este dispositivo en sus pacientes, que es lo
-/// que permite al dispositivo del paciente enviarle el push (ver `PushService`).
+/// que permite al dispositivo del paciente enviarle esa alerta.
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -120,7 +119,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
 
       final estadoTxt = _verbo(r.estado);
-      if (!_push.pushHabilitado || _appVisible()) {
+      if (_appVisible()) {
         await _notif.mostrarNotificacion(
           id: r.id.hashCode & 0x7FFFFFFF,
           titulo: _tituloNotificacion(r.estado),
@@ -129,7 +128,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    if (olvidadas > 0 && (!_push.pushHabilitado || _appVisible())) {
+    if (olvidadas > 0 && _appVisible()) {
       await _notif.mostrarNotificacion(
         id: DateTime.now().millisecondsSinceEpoch & 0x7FFFFFFF,
         titulo: olvidadas == 1 ? 'Toma olvidada' : '$olvidadas tomas olvidadas',
@@ -140,9 +139,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// La app está visible cuando FCM no enseña la notificación (la deja al
-  /// código). Si no lo está, la muestra el sistema y avisar aquí daría
-  /// duplicados.
+  /// Solo se muestran notificaciones locales de confirmaciones con la app
+  /// visible. El aviso de 5 días sin tomas llega por FCM y se respalda en el
+  /// detalle del paciente, así que no se duplica aquí.
   bool _appVisible() {
     final estado = WidgetsBinding.instance.lifecycleState;
     return estado != AppLifecycleState.paused &&

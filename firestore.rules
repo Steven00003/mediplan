@@ -47,10 +47,17 @@ service cloud.firestore {
     }
 
     match /tratamientos/{id} {
-      allow read, update, delete: if esCuidadorDelPaciente(resource.data.pacienteId)
-                                  || esDispositivoVinculado(resource.data.pacienteId);
-      allow create: if esCuidadorDelPaciente(request.resource.data.pacienteId)
-                    || esDispositivoVinculado(request.resource.data.pacienteId);
+      allow read: if esCuidadorDelPaciente(resource.data.pacienteId)
+                  || esDispositivoVinculado(resource.data.pacienteId);
+      // El paciente solo puede escribir el campo del aviso de 5 días sin
+      // tomas. El cuidador conserva el control total del tratamiento.
+      allow update: if esCuidadorDelPaciente(resource.data.pacienteId)
+                    || (esDispositivoVinculado(resource.data.pacienteId)
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys()
+                             .hasOnly(['ultimoAvisoSinTomas']));
+      allow create: if esCuidadorDelPaciente(request.resource.data.pacienteId);
+      allow delete: if esCuidadorDelPaciente(resource.data.pacienteId);
     }
 
     match /registrosToma/{id} {

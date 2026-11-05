@@ -219,6 +219,25 @@ class FirestoreService {
         .update(tratamiento.toMap());
   }
 
+  /// Marca la fecha local del último push de "5 días sin tomas".
+  ///
+  /// Es el único campo que las reglas dejan escribir al dispositivo del
+  /// paciente en `tratamientos`; va con `update` para no tocar el resto.
+  Future<void> marcarAvisoSinTomas(String tratamientoId, DateTime fecha) async {
+    await _tratamientosCollection().doc(tratamientoId).update({
+      'ultimoAvisoSinTomas': Timestamp.fromDate(
+        DateTime(fecha.year, fecha.month, fecha.day),
+      ),
+    });
+  }
+
+  /// Borra el aviso cuando una toma confirmada reinicia la racha.
+  Future<void> limpiarAvisoSinTomas(String tratamientoId) async {
+    await _tratamientosCollection().doc(tratamientoId).update({
+      'ultimoAvisoSinTomas': FieldValue.delete(),
+    });
+  }
+
   Future<void> eliminarTratamiento(String id) async {
     await _tratamientosCollection().doc(id).delete();
   }

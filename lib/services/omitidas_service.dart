@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
 import '../utils/hash_estable.dart';
 import '../utils/vigencia_tratamiento.dart';
+import 'alerta_sin_tomas_service.dart';
 import 'firestore_service.dart';
 import 'notificaciones_service.dart';
+import 'push_service.dart';
 
 /// Una toma programada concreta: la ranura lógica de una dosis.
 ///
@@ -91,6 +95,18 @@ class OmitidaNueva {
 class OmitidasService {
   final FirestoreService _fs = FirestoreService();
   final NotificacionesService _notif = NotificacionesService();
+  final PushService _push = PushService();
+
+  /// Avisos de "5 días sin tomas" ya enviados en esta sesión, para que la
+  /// caché de tratamientos (que puede tardar hasta 5 min en refrescarse) no
+  /// provoque un segundo FCM el mismo día.
+  final Map<String, DateTime> _avisosSinTomasEnviados = <String, DateTime>{};
+
+  /// Evita que dos reconciliaciones solapadas envíen el mismo aviso a la vez.
+  final Set<String> _avisosSinTomasEnCurso = <String>{};
+
+  DateTime? _ultimaEvaluacionAlertas;
+  String? _firmaTratamientosAlertas;
 
   /// Cuántos días hacia atrás se revisan al reconciliar.
   ///
@@ -243,15 +259,14 @@ class OmitidasService {
   static String firmaDe(List<RanuraToma> vencidas) =>
       vencidas.map((r) => r.clave).join('|');
 
-  /// Reconcilia y devuelve las tomas que acaba de marcar como olvidadas.
-  ///
-  /// Devuelve vacío cuando no escribió nada (incluida la ruta rápida), de modo
-  /// que el llamador pueda avisar al cuidador de cada olvidada nueva sin
-  /// duplicarla en los ticks siguientes.
+  /// Reconcilia, marca las tomas olvidadas y evalúa la alerta de 5 días sin
+  /// tomas. Devuelve las olvidadas que acaba de escribir; el aviso al cuidador
+  /// se maneja dentro de este método.
   ///
   /// Ruta rápida: si el conjunto de tomas vencidas no cambió desde la última
-  /// vez, no se toca Firestore en absoluto (ni lectura ni escritura). Es lo que
-  /// hace aceptable un tick periódico. La lista de tratamientos se reutiliza en
+  /// vez y no hay una alerta pendiente que revisar, no se toca Firestore en
+  /// absoluto (ni lectura ni escritura). Es lo que hace aceptable un tick
+  /// periódico. La lista de tratamientos se reutiliza en
   /// memoria hasta [vigenciaCacheTratamientos] y después se vuelve a leer, para
   /// que un horario editado por el cuidador no tarde indefinidamente en verse.
   ///
@@ -277,20 +292,34 @@ class OmitidasService {
       ahora: momento,
     );
     final firma = firmaDe(vencidas);
+    final firmaTratamientos = _firmaDeTratamientos(tratamientos);
+    final evaluarAlertas = _debeEvaluarAlertas(
+      tratamientos,
+      momento,
+      firmaTratamientos,
+    );
 
-    if (!forzar && _firma == firma) return const [];
+    if (!forzar && _firma == firma && !evaluarAlertas) return const [];
 
     // Se releen los registros de la ventana para saber qué falta. El rango
     // arranca a medianoche del primer día revisado y termina mañana, así que
-    // cubre con holgura las horas de hoy.
+    // cubre con holgura las horas de hoy. Si la alerta de 5 días necesita días
+    // más antiguos (por ejemplo, un horario semanal), se amplía el inicio.
     final inicioDia = DateTime(
       momento.year,
       momento.month,
       momento.day,
     ).subtract(Duration(days: ventanaDias - 1));
+    var inicioLectura = inicioDia;
+    for (final t in tratamientos) {
+      final inicioAlerta = AlertaSinTomasService.inicioVentanaAlerta(t, momento);
+      if (inicioAlerta != null && inicioAlerta.isBefore(inicioLectura)) {
+        inicioLectura = inicioAlerta;
+      }
+    }
     final existentes = await _fs.getRegistrosEnRango(
       pacienteId,
-      inicioDia,
+      inicioLectura,
       inicioDia.add(const Duration(days: ventanaDias + 1)),
     );
     final resueltas = clavesResueltas(existentes);
@@ -325,8 +354,128 @@ class OmitidasService {
     // La firma se fija al final y no antes: si las escrituras fallaran, el
     // siguiente tick debe reintentarlo en vez de darla por buena.
     _firma = firma;
+
+    // Se evalúa después de escribir las olvidadas: una toma olvidada no cuenta
+    // como confirmación, así que no rompe la racha. Si algo falla, no se marca
+    // la evaluación como hecha para que el siguiente tick lo reintente.
+    final alertasOk = await _evaluarAlertasSinTomas(
+      pacienteId,
+      tratamientos,
+      existentes,
+      momento,
+    );
+    if (alertasOk) {
+      _ultimaEvaluacionAlertas = momento;
+      _firmaTratamientosAlertas = firmaTratamientos;
+    }
     return nuevas;
   }
+
+  /// ¿Hay que releer registros aunque las tomas vencidas no hayan cambiado?
+  ///
+  /// La alerta de 5 días depende de datos que no están en [firmaDe]: una
+  /// confirmación puede romper la racha, el cambio de día mueve la ventana y
+  /// el campo `ultimoAvisoSinTomas` cambia al enviar o reiniciar el aviso.
+  bool _debeEvaluarAlertas(
+    List<Tratamiento> tratamientos,
+    DateTime ahora,
+    String firmaTratamientos,
+  ) {
+    if (_ultimaEvaluacionAlertas == null) return true;
+    if (!_mismoDia(_ultimaEvaluacionAlertas!, ahora)) return true;
+    if (_firmaTratamientosAlertas != firmaTratamientos) return true;
+
+    // Mientras haya un aviso marcado se relee en cada tick: así una toma
+    // confirmada reinicia la racha y el campo `ultimoAvisoSinTomas` se limpia
+    // en cuanto se detecta, sin esperar al día siguiente.
+    for (final t in tratamientos) {
+      if (t.ultimoAvisoSinTomas != null) return true;
+      if (_avisosSinTomasEnviados.containsKey(t.id)) return true;
+    }
+    return false;
+  }
+
+  Future<bool> _evaluarAlertasSinTomas(
+    String pacienteId,
+    List<Tratamiento> tratamientos,
+    List<RegistroToma> registros,
+    DateTime ahora,
+  ) async {
+    var ok = true;
+
+    for (final t in tratamientos) {
+      final hayAlerta = AlertaSinTomasService.hayAlerta(
+        tratamiento: t,
+        registros: registros,
+        ahora: ahora,
+      );
+
+      if (!hayAlerta) {
+        final teniaAviso =
+            t.ultimoAvisoSinTomas != null ||
+            _avisosSinTomasEnviados.containsKey(t.id);
+        if (!teniaAviso) continue;
+
+        try {
+          // Una toma confirmada (o cualquier cambio que saque al tratamiento
+          // de la alerta) reinicia el estado para una racha futura.
+          await _fs.limpiarAvisoSinTomas(t.id);
+          _avisosSinTomasEnviados.remove(t.id);
+        } catch (e) {
+          ok = false;
+          debugPrint(
+            'No se pudo reiniciar ultimoAvisoSinTomas de ${t.id}: $e',
+          );
+        }
+        continue;
+      }
+
+      final avisoEnCampo = t.ultimoAvisoSinTomas;
+      final avisoEnMemoria = _avisosSinTomasEnviados[t.id];
+      final yaAvisadoHoy =
+          (avisoEnCampo != null && _mismoDia(avisoEnCampo, ahora)) ||
+          (avisoEnMemoria != null && _mismoDia(avisoEnMemoria, ahora));
+      if (yaAvisadoHoy) continue;
+
+      if (!_avisosSinTomasEnCurso.add(t.id)) continue;
+      try {
+        // Se guarda primero la fecha: si dos reconciliaciones se solapan, la
+        // segunda no vuelve a enviar el push. Si la escritura falla, no se
+        // envía nada para no dejar el aviso sin registrar.
+        await _fs.marcarAvisoSinTomas(t.id, ahora);
+        _avisosSinTomasEnviados[t.id] = ahora;
+        unawaited(
+          _push.notificarAlertaSinTomas(
+            pacienteId: pacienteId,
+            nombreMedicamento: t.nombreMedicamento,
+          ),
+        );
+      } catch (e) {
+        ok = false;
+        debugPrint(
+          'No se pudo marcar/enviar la alerta sin tomas de ${t.id}: $e',
+        );
+      } finally {
+        _avisosSinTomasEnCurso.remove(t.id);
+      }
+    }
+
+    return ok;
+  }
+
+  static String _firmaDeTratamientos(List<Tratamiento> tratamientos) {
+    return tratamientos.map((t) {
+      final horarios = t.horarios
+          .map((h) => '${h.hora}[${(h.dias.toList()..sort()).join(',')}]')
+          .join(';');
+      return '${t.id}|${t.fechaInicio?.toIso8601String()}|'
+          '${t.duracionDias}|$horarios|'
+          '${t.ultimoAvisoSinTomas?.toIso8601String()}';
+    }).join('||');
+  }
+
+  static bool _mismoDia(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   Future<List<Tratamiento>> _tratamientosDe(
     String pacienteId, {
@@ -406,5 +555,9 @@ class OmitidasService {
     _cacheLeida = null;
     _firma = null;
     _finalizadosCancelados.clear();
+    _avisosSinTomasEnviados.clear();
+    _avisosSinTomasEnCurso.clear();
+    _ultimaEvaluacionAlertas = null;
+    _firmaTratamientosAlertas = null;
   }
 }

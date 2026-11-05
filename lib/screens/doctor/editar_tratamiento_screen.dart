@@ -285,6 +285,9 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
       duracion: _textoDuracion(duracionDias),
       fechaInicio: _fechaInicio,
       duracionDias: duracionDias,
+      // Se conserva el aviso ya enviado; editar el tratamiento no debe
+      // reiniciar el control de "5 días sin tomas".
+      ultimoAvisoSinTomas: widget.tratamiento?.ultimoAvisoSinTomas,
     );
 
     try {

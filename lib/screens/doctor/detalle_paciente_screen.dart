@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../models/paciente.dart';
 import '../../models/registro_toma.dart';
 import '../../models/tratamiento.dart';
+import '../../services/alerta_sin_tomas_service.dart';
 import '../../services/firestore_service.dart';
 import '../../services/imagen_service.dart';
 import '../../services/notificaciones_service.dart';
@@ -159,6 +160,7 @@ class _PestanaHorario extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _AvisoSinTomas(pacienteId: paciente.id),
         const Text(
           'Medicamentos',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -362,6 +364,119 @@ class _PestanaHorario extends StatelessWidget {
         );
       }
     }
+  }
+}
+
+/// Respaldo del push de "5 días sin tomas" cuando el paciente no abrió la app.
+///
+/// Recalcula lo mismo que [AlertaSinTomasService] con los tratamientos y los
+/// registros del paciente. No envía FCM: solo pinta un aviso visible en el
+/// detalle del cuidador.
+class _AvisoSinTomas extends StatefulWidget {
+  final String pacienteId;
+  const _AvisoSinTomas({required this.pacienteId});
+
+  @override
+  State<_AvisoSinTomas> createState() => _AvisoSinTomasState();
+}
+
+class _AvisoSinTomasState extends State<_AvisoSinTomas> {
+  final FirestoreService _fs = FirestoreService();
+  late final Stream<List<Tratamiento>> _tratamientos;
+  late final Future<List<RegistroToma>> _registros;
+
+  @override
+  void initState() {
+    super.initState();
+    _tratamientos = _fs.streamTratamientosDePaciente(widget.pacienteId);
+
+    // 35 días cubren de sobra los últimos 5 días programados incluso con un
+    // horario de una vez por semana. Se lee una sola vez al abrir el detalle;
+    // es un respaldo, no el mecanismo principal.
+    final ahora = DateTime.now();
+    final hoy = DateTime(ahora.year, ahora.month, ahora.day);
+    _registros = _fs.getRegistrosEnRango(
+      widget.pacienteId,
+      DateTime(hoy.year, hoy.month, hoy.day - 35),
+      DateTime(hoy.year, hoy.month, hoy.day + 1),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<Tratamiento>>(
+      stream: _tratamientos,
+      builder: (context, tratSnap) {
+        final tratamientos = tratSnap.data ?? const <Tratamiento>[];
+        if (tratamientos.isEmpty) return const SizedBox.shrink();
+
+        return FutureBuilder<List<RegistroToma>>(
+          future: _registros,
+          builder: (context, regSnap) {
+            if (regSnap.connectionState == ConnectionState.waiting ||
+                regSnap.hasError) {
+              return const SizedBox.shrink();
+            }
+            final registros = regSnap.data ?? const <RegistroToma>[];
+            final ahora = DateTime.now();
+            final alertas = tratamientos
+                .where(
+                  (t) => AlertaSinTomasService.hayAlerta(
+                    tratamiento: t,
+                    registros: registros,
+                    ahora: ahora,
+                  ),
+                )
+                .toList();
+            if (alertas.isEmpty) return const SizedBox.shrink();
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              color: AppColors.error.withValues(alpha: 0.10),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: AppColors.error,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '5 días sin tomas',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.error,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          for (final t in alertas)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                '${t.nombreMedicamento}: sin tomas '
+                                'confirmadas en los últimos 5 días programados.',
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 }
 
