@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/paciente.dart';
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
+import '../utils/historial_tomas.dart';
 
 /// El código existe, pero el paciente ya está vinculado a otro UID.
 ///
@@ -446,14 +447,19 @@ class FirestoreService {
         );
   }
 
-  /// Últimos registros de un tratamiento dentro de los últimos [dias] días.
+  /// Las [limite] tomas más recientes de un tratamiento dentro de los últimos
+  /// [dias] días, de más reciente a más antigua y excluyendo tomas futuras.
   ///
-  /// Reutiliza la misma forma de consulta que [streamTomasPendientesHoy]:
-  /// igualdad en `pacienteId` y `tratamientoId` + rango en `horaProgramada`.
-  /// Esa combinación ya está cubierta por el índice compuesto
-  /// `(pacienteId, tratamientoId, horaProgramada)` que usa la app; no hace
-  /// falta un índice nuevo. No se ordena en Firestore para no pedir una
-  /// variante DESC: se ordena y recorta en memoria (máximo [limite] filas).
+  /// La consulta principal pide directamente `orderBy` descendente + `limit`
+  /// sobre `horaProgramada`. Para esa forma hace falta un índice compuesto con
+  /// dirección DESC; el índice ASC de [streamTomasPendientesHoy] **no** sirve
+  /// para ordenar al revés. La definición está en `firestore.indexes.json`.
+  ///
+  /// Si el índice DESC todavía no está desplegado, Firestore responde
+  /// `failed-precondition`; en ese caso se usa la consulta de rango con el
+  /// índice ASC ya existente, se ordena y se recorta en memoria con
+  /// [HistorialTomas.recientes]. Así la pantalla sigue funcionando mientras se
+  /// crea el índice.
   Future<List<RegistroToma>> getHistorialDeTratamiento(
     String pacienteId,
     String tratamientoId, {
@@ -461,6 +467,8 @@ class FirestoreService {
     int dias = 7,
     int limite = 10,
   }) async {
+    if (dias <= 0 || limite <= 0) return const [];
+
     final referencia = ahora ?? DateTime.now();
     final inicio = DateTime(
       referencia.year,
@@ -468,16 +476,42 @@ class FirestoreService {
       referencia.day,
     ).subtract(Duration(days: dias - 1));
 
-    final snap = await _registrosCollection()
-        .where('pacienteId', isEqualTo: pacienteId)
-        .where('tratamientoId', isEqualTo: tratamientoId)
-        .where('horaProgramada', isGreaterThanOrEqualTo: inicio)
-        .get();
+    List<RegistroToma> convertir(QuerySnapshot<Map<String, dynamic>> snap) =>
+        snap.docs.map((d) => RegistroToma.fromMap(d.id, d.data())).toList();
 
-    final registros =
-        snap.docs.map((d) => RegistroToma.fromMap(d.id, d.data())).toList()
-          ..sort((a, b) => b.horaProgramada.compareTo(a.horaProgramada));
-    return registros.take(limite).toList();
+    try {
+      final snap = await _registrosCollection()
+          .where('pacienteId', isEqualTo: pacienteId)
+          .where('tratamientoId', isEqualTo: tratamientoId)
+          .where('horaProgramada', isGreaterThanOrEqualTo: inicio)
+          .where('horaProgramada', isLessThanOrEqualTo: referencia)
+          .orderBy('horaProgramada', descending: true)
+          .limit(limite)
+          .get();
+      return HistorialTomas.recientes(
+        convertir(snap),
+        ahora: referencia,
+        dias: dias,
+        limite: limite,
+      );
+    } on FirebaseException catch (e) {
+      if (e.code != 'failed-precondition') rethrow;
+
+      // Fallback sin orderBy: reutiliza el índice compuesto ASC que ya usa
+      // `streamTomasPendientesHoy`.
+      final snap = await _registrosCollection()
+          .where('pacienteId', isEqualTo: pacienteId)
+          .where('tratamientoId', isEqualTo: tratamientoId)
+          .where('horaProgramada', isGreaterThanOrEqualTo: inicio)
+          .where('horaProgramada', isLessThanOrEqualTo: referencia)
+          .get();
+      return HistorialTomas.recientes(
+        convertir(snap),
+        ahora: referencia,
+        dias: dias,
+        limite: limite,
+      );
+    }
   }
 
   // ---------------------------------------------------------------------

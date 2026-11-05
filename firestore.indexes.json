@@ -1,4 +1,69 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "registrosToma",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pacienteId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "horaProgramada",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "registrosToma",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pacienteId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "horaProgramada",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "registrosToma",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pacienteId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tratamientoId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "horaProgramada",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "registrosToma",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pacienteId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tratamientoId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "horaProgramada",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

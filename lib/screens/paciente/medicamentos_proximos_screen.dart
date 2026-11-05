@@ -279,6 +279,25 @@ class _MedicamentosProximosScreenState
           appBar: AppBar(
             title: Text(_pestana == 0 ? 'Tus medicamentos' : 'Historial'),
             automaticallyImplyLeading: false,
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: TextButton.icon(
+                  onPressed: _mostrarDialogoSalida,
+                  icon: const Icon(Icons.logout, size: 22),
+                  label: const Text('Salir'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.onGreen,
+                    minimumSize: const Size(88, 48),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           // IndexedStack mantiene vivas las dos pestañas: al volver a "Horario"
           // la lista no se vuelve a cargar (ni aparece un spinner) y el título
@@ -405,21 +424,18 @@ class _MedicamentosProximosScreenState
     );
   }
 
-  /// Salida oculta: solo toque largo con confirmación. Queda bloqueado el
-  /// gesto/flecha de atrás (PopScope). No cierra la sesión anónima: conserva el
-  /// UID para poder reingresar sin código desde la selección de rol. El
-  /// documento en Firestore no se modifica; solo el cuidador puede desvincular.
+  /// Salida del modo paciente: botón visible del AppBar y toque largo, ambos
+  /// con la misma confirmación. Queda bloqueado el gesto/flecha de atrás
+  /// (PopScope). No cierra la sesión anónima: conserva el UID para poder
+  /// reingresar sin código desde la selección de rol. El documento en Firestore
+  /// no se modifica; solo el cuidador puede desvincular.
   Future<void> _mostrarDialogoSalida() async {
     final appState = context.read<AppState>();
     final salir = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Salir del modo paciente'),
-        content: const Text(
-          'Esto cierra el modo paciente en este teléfono. Podrás volver a '
-          'entrar sin escribir el código mientras el cuidador no desvincule '
-          'el dispositivo.',
-        ),
+        title: const Text('¿Seguro que quieres salir?'),
+        content: const Text('Podrás volver a entrar sin escribir el código.'),
         actionsAlignment: MainAxisAlignment.center,
         actions: [
           TextButton(
