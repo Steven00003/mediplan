@@ -11,6 +11,7 @@ import '../services/omitidas_service.dart';
 import '../services/notificaciones_service.dart';
 import '../services/vinculacion_service.dart';
 import '../utils/reingreso_paciente.dart';
+import '../utils/vigencia_tratamiento.dart';
 
 /// Mantiene el estado global de la app según el rol en uso.
 ///
@@ -388,6 +389,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       );
       await _notif.cancelarTodas();
       for (final tratamiento in tratamientos) {
+        if (!VigenciaTratamiento.estaVigente(tratamiento, DateTime.now())) {
+          continue;
+        }
         for (final horario in tratamiento.horarios) {
           try {
             await _notif.programarNotificacionesDeHorario(

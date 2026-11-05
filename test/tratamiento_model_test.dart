@@ -27,8 +27,14 @@ void main() {
       final t = Tratamiento.fromMap('id1', {
         'nombreMedicamento': 'Ibuprofeno',
         'horarios': [
-          {'hora': '09:00', 'dias': [1, 3, 5]},
-          {'hora': '21:00', 'dias': [2, 4]},
+          {
+            'hora': '09:00',
+            'dias': [1, 3, 5],
+          },
+          {
+            'hora': '21:00',
+            'dias': [2, 4],
+          },
         ],
       });
 
@@ -57,17 +63,16 @@ void main() {
       });
 
       expect(t.toMap()['horarios'], [
-        {
-          'hora': '08:00',
-          'dias': HorarioDia.todosLosDias,
-        },
+        {'hora': '08:00', 'dias': HorarioDia.todosLosDias},
       ]);
     });
 
     test('horarios ausente o de tipo inesperado produce lista vacía', () {
       final sinCampo = Tratamiento.fromMap('id', {'nombreMedicamento': 'X'});
-      final tipoRaro = Tratamiento.fromMap(
-          'id', {'nombreMedicamento': 'X', 'horarios': '08:00'});
+      final tipoRaro = Tratamiento.fromMap('id', {
+        'nombreMedicamento': 'X',
+        'horarios': '08:00',
+      });
 
       expect(sinCampo.horarios, isEmpty);
       expect(tipoRaro.horarios, isEmpty);
@@ -84,5 +89,46 @@ void main() {
       expect(releido.horarios.map((h) => h.hora).toList(), ['08:00', '20:00']);
       expect(releido.horarios.every((h) => h.dias.length == 7), isTrue);
     });
+  });
+
+  group('Tratamiento.fechaInicio y duracionDias', () {
+    test('serializa y relee la fecha local y la duración numérica', () {
+      final t = Tratamiento(
+        id: 'id1',
+        pacienteId: 'p1',
+        nombreMedicamento: 'X',
+        dosis: '1',
+        horarios: const [
+          HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias),
+        ],
+        frecuencia: 'Diaria',
+        duracion: '7 días',
+        fechaInicio: DateTime(2026, 11, 2),
+        duracionDias: 7,
+      );
+
+      final map = t.toMap();
+      final releido = Tratamiento.fromMap('id1', map);
+
+      expect(map['duracion'], '7 días');
+      expect(map['duracionDias'], 7);
+      expect(releido.fechaInicio, DateTime(2026, 11, 2));
+      expect(releido.duracionDias, 7);
+    });
+
+    test(
+      'documento viejo sin fecha ni duración numérica queda desconocido',
+      () {
+        final t = Tratamiento.fromMap('id1', {
+          'nombreMedicamento': 'X',
+          'duracion': '7 días',
+          'horarios': ['08:00'],
+        });
+
+        expect(t.fechaInicio, isNull);
+        expect(t.duracionDias, isNull);
+        expect(t.duracion, '7 días');
+      },
+    );
   });
 }

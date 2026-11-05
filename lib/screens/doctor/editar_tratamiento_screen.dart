@@ -6,6 +6,7 @@ import '../../services/firestore_service.dart';
 import '../../services/imagen_service.dart';
 import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/vigencia_tratamiento.dart';
 
 /// Pantalla para crear o editar un tratamiento (medicamento) de un paciente.
 ///
@@ -37,12 +38,32 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
 
   late final TextEditingController _nombreController;
   late final TextEditingController _dosisController;
-  late final TextEditingController _duracionController;
+  late final TextEditingController _otroDiasController;
   final List<_HorarioForm> _horarios = [];
   String _frecuencia = 'Diaria';
   String? _fotoBase64;
   bool _cargando = false;
   String? _error;
+
+  late DateTime _fechaInicio;
+  String _duracionOpcion = 'continuo';
+
+  /// Texto de `duracion` de un tratamiento antiguo que no se puede convertir a
+  /// días sin parsear texto libre. Solo se muestra como referencia.
+  String? _duracionAnterior;
+  bool _fechaInicioDesconocida = false;
+
+  static const List<String> _opcionesDuracion = [
+    '3',
+    '5',
+    '7',
+    '10',
+    '14',
+    '21',
+    '30',
+    'continuo',
+    'otro',
+  ];
 
   @override
   void initState() {
@@ -50,14 +71,57 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
     final t = widget.tratamiento;
     _nombreController = TextEditingController(text: t?.nombreMedicamento ?? '');
     _dosisController = TextEditingController(text: t?.dosis ?? '1');
-    _duracionController = TextEditingController(text: t?.duracion ?? '');
+    _otroDiasController = TextEditingController();
     _fotoBase64 = t?.fotoBase64;
     _frecuencia = t?.frecuencia.isNotEmpty == true ? t!.frecuencia : 'Diaria';
+
+    final hoy = _soloFecha(DateTime.now());
+    _fechaInicio = t?.fechaInicio != null ? _soloFecha(t!.fechaInicio!) : hoy;
+    _fechaInicioDesconocida = t != null && t.fechaInicio == null;
+
+    if (t?.duracionDias != null) {
+      final dias = t!.duracionDias!;
+      if (_opcionesDuracion.contains('$dias')) {
+        _duracionOpcion = '$dias';
+      } else {
+        _duracionOpcion = 'otro';
+        _otroDiasController.text = '$dias';
+      }
+    } else {
+      _duracionOpcion = 'continuo';
+    }
+
+    // Compatibilidad: no se parsea el texto libre antiguo. Si el tratamiento
+    // no tenía duración numérica, se muestra solo como ayuda visual.
+    if (t != null && t.duracionDias == null) {
+      final texto = t.duracion?.trim();
+      if (texto != null && texto.isNotEmpty) _duracionAnterior = texto;
+    }
+
     if (t != null) {
       for (final h in t.horarios) {
         // Precarga la hora y los días que ya tenía cada HorarioDia.
         _horarios.add(_HorarioForm(_parseHora(h.hora), h.dias.toSet()));
       }
+    }
+  }
+
+  static DateTime _soloFecha(DateTime fecha) =>
+      DateTime(fecha.year, fecha.month, fecha.day);
+
+  String _textoDuracion(int? dias) {
+    if (dias == null) return 'Continuo';
+    return dias == 1 ? '1 día' : '$dias días';
+  }
+
+  String _etiquetaDuracion(String opcion) {
+    switch (opcion) {
+      case 'continuo':
+        return 'Continuo';
+      case 'otro':
+        return 'Otro (número de días)';
+      default:
+        return _textoDuracion(int.tryParse(opcion));
     }
   }
 
@@ -73,8 +137,24 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
   void dispose() {
     _nombreController.dispose();
     _dosisController.dispose();
-    _duracionController.dispose();
+    _otroDiasController.dispose();
     super.dispose();
+  }
+
+  Future<void> _elegirFechaInicio() async {
+    final hoy = _soloFecha(DateTime.now());
+    final elegida = await showDatePicker(
+      context: context,
+      initialDate: _fechaInicio.isAfter(hoy) ? hoy : _fechaInicio,
+      firstDate: DateTime(2000),
+      lastDate: hoy,
+      helpText: 'Fecha de inicio del tratamiento',
+      cancelText: 'Cancelar',
+      confirmText: 'Aceptar',
+    );
+    if (elegida != null) {
+      setState(() => _fechaInicio = _soloFecha(elegida));
+    }
   }
 
   Future<void> _elegirFoto() async {
@@ -146,7 +226,19 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
   Future<void> _guardar() async {
     final nombre = _nombreController.text.trim();
     final dosis = _dosisController.text.trim();
-    final duracion = _duracionController.text.trim();
+
+    int? duracionDias;
+    if (_duracionOpcion == 'otro') {
+      final dias = int.tryParse(_otroDiasController.text.trim());
+      if (dias == null || dias <= 0) {
+        setState(() => _error = 'Escribe un número de días mayor que cero.');
+        return;
+      }
+      duracionDias = dias;
+    } else if (_duracionOpcion != 'continuo') {
+      duracionDias = int.tryParse(_duracionOpcion);
+    }
+
     if (nombre.isEmpty) {
       setState(() => _error = 'Ingresa el nombre del medicamento.');
       return;
@@ -188,8 +280,11 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
           )
           .toList(),
       frecuencia: _frecuencia,
-      // Vacío se guarda como null, no como ''.
-      duracion: duracion.isEmpty ? null : duracion,
+      // `duracion` se conserva como texto legible; la finalización real usa
+      // `duracionDias` y `fechaInicio`.
+      duracion: _textoDuracion(duracionDias),
+      fechaInicio: _fechaInicio,
+      duracionDias: duracionDias,
     );
 
     try {
@@ -211,14 +306,16 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
         horarios: horariosAnteriores,
       );
 
-      // Programa alarma, aviso previo y recordatorio tardío por cada día de
-      // cada horario.
-      for (final h in tratamiento.horarios) {
-        await _notif.programarNotificacionesDeHorario(
-          tratamientoId: id,
-          horario: h,
-          nombreMedicamento: nombre,
-        );
+      // Un tratamiento ya terminado no debe volver a programar alarmas, avisos
+      // ni tardíos. Las del estado anterior ya se cancelaron arriba.
+      if (VigenciaTratamiento.estaVigente(tratamiento, DateTime.now())) {
+        for (final h in tratamiento.horarios) {
+          await _notif.programarNotificacionesDeHorario(
+            tratamientoId: id,
+            horario: h,
+            nombreMedicamento: nombre,
+          );
+        }
       }
 
       if (mounted) Navigator.of(context).pop();
@@ -365,17 +462,68 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            // Duración (texto libre opcional)
-            TextField(
-              controller: _duracionController,
+            // Fecha de inicio: fecha local, sin hora.
+            InkWell(
+              onTap: _elegirFechaInicio,
+              borderRadius: BorderRadius.circular(4),
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: 'Fecha de inicio',
+                  helperText: _fechaInicioDesconocida
+                      ? 'Este tratamiento no tenía fecha; se guardará la elegida.'
+                      : null,
+                  suffixIcon: const Icon(Icons.calendar_today),
+                  border: const OutlineInputBorder(),
+                ),
+                child: Text(
+                  MaterialLocalizations.of(context)
+                      .formatMediumDate(_fechaInicio),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _duracionOpcion,
               decoration: const InputDecoration(
                 labelText: 'Duración del tratamiento',
-                hintText: 'Ej: 7 días, Continuo',
-                helperText: 'Opcional',
                 border: OutlineInputBorder(),
               ),
-              textCapitalization: TextCapitalization.sentences,
+              items: [
+                for (final opcion in _opcionesDuracion)
+                  DropdownMenuItem(
+                    value: opcion,
+                    child: Text(_etiquetaDuracion(opcion)),
+                  ),
+              ],
+              onChanged: (valor) {
+                if (valor == null) return;
+                setState(() => _duracionOpcion = valor);
+              },
             ),
+            if (_duracionOpcion == 'otro') ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _otroDiasController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Número de días',
+                  hintText: 'Ej: 45',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ],
+            if (_duracionAnterior != null && _duracionOpcion == 'continuo') ...[
+              const SizedBox(height: 6),
+              Text(
+                'Duración anterior: "$_duracionAnterior". '
+                'Elige una opción para actualizarla.',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             const Text(
               'Horarios',

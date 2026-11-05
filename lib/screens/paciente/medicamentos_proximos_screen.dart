@@ -13,6 +13,7 @@ import '../../services/imagen_service.dart';
 import '../../services/local_store.dart';
 import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/vigencia_tratamiento.dart';
 import 'alarma_screen.dart';
 
 /// Pantalla principal del Paciente: "Medicamentos próximos".
@@ -66,13 +67,16 @@ class _MedicamentosProximosScreenState
     // AppState es la fuente compartida para no mostrar dos al mismo tiempo.
     if (context.read<AppState>().alarmaAbierta) return;
 
-    final tratamientos =
-        await _fs.streamTratamientosDePaciente(pacienteId).first;
+    final tratamientos = await _fs
+        .streamTratamientosDePaciente(pacienteId)
+        .first;
     final ahora = DateTime.now();
 
     Tratamiento? candidato;
     TimeOfDay? horarioCandidato;
     for (final t in tratamientos) {
+      // Un tratamiento terminado no debe abrir la alarma automáticamente.
+      if (!VigenciaTratamiento.estaVigente(t, ahora)) continue;
       for (final hRaw in t.horarios) {
         // Un horario con dias: [1,3,5] no debe dispararse un martes.
         // `DateTime.weekday` ya es ISO (1=lunes … 7=domingo), igual que
@@ -80,8 +84,13 @@ class _MedicamentosProximosScreenState
         if (!hRaw.dias.contains(ahora.weekday)) continue;
         final hh = hRaw.hora.split(':');
         if (hh.length != 2) continue;
-        final fechaToma = DateTime(ahora.year, ahora.month, ahora.day,
-            int.parse(hh[0]), int.parse(hh[1]));
+        final fechaToma = DateTime(
+          ahora.year,
+          ahora.month,
+          ahora.day,
+          int.parse(hh[0]),
+          int.parse(hh[1]),
+        );
         final diff = fechaToma.difference(ahora);
 
         // Toma "due": ya pasó su hora y aún no fue confirmada, o está por
@@ -90,7 +99,9 @@ class _MedicamentosProximosScreenState
           if (!await _yaConfirmada(pacienteId, t.id, fechaToma)) {
             candidato = t;
             horarioCandidato = TimeOfDay(
-                hour: int.parse(hh[0]), minute: int.parse(hh[1]));
+              hour: int.parse(hh[0]),
+              minute: int.parse(hh[1]),
+            );
             break;
           }
         }
@@ -165,18 +176,22 @@ class _MedicamentosProximosScreenState
     try {
       final concedido = await notif.solicitarPermisoPantallaCompleta();
       if (!mounted || concedido != false) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-          'El permiso no se activó. La alarma seguirá llegando como '
-          'notificación normal.',
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'El permiso no se activó. La alarma seguirá llegando como '
+            'notificación normal.',
+          ),
         ),
-      ));
+      );
     } catch (e) {
       debugPrint('No se pudo solicitar el permiso de pantalla completa: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('No se pudo abrir el permiso de pantalla completa.'),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo abrir el permiso de pantalla completa.'),
+        ),
+      );
     }
   }
 
@@ -188,24 +203,27 @@ class _MedicamentosProximosScreenState
   /// alarma de las 20:00, su toma de las 08:00 se marcaba como olvidada — y si
   /// luego pulsara "YA" quedaría con dos registros para la misma ranura.
   void _abrirAlarma(
-      Tratamiento tratamiento, TimeOfDay hora, String pacienteId) {
+    Tratamiento tratamiento,
+    TimeOfDay hora,
+    String pacienteId,
+  ) {
     final appState = context.read<AppState>();
     _alarmaAbierta = true;
     appState.setAlarmaAbierta(true);
     Navigator.of(context)
         .push(
-      MaterialPageRoute(
-        builder: (_) => AlarmaScreen(
-          tratamiento: tratamiento,
-          horaProgramada: hora,
-          pacienteId: pacienteId,
-        ),
-      ),
-    )
+          MaterialPageRoute(
+            builder: (_) => AlarmaScreen(
+              tratamiento: tratamiento,
+              horaProgramada: hora,
+              pacienteId: pacienteId,
+            ),
+          ),
+        )
         .then((_) {
-      _alarmaAbierta = false;
-      appState.setAlarmaAbierta(false);
-    });
+          _alarmaAbierta = false;
+          appState.setAlarmaAbierta(false);
+        });
   }
 
   /// ¿Esta toma concreta (esta ranura) ya está resuelta?
@@ -219,7 +237,10 @@ class _MedicamentosProximosScreenState
   /// Solo cuentan los estados terminales: una toma pospuesta se reagendó, así que
   /// sigue sin resolverse (ver `EstadoToma.esTerminal`).
   Future<bool> _yaConfirmada(
-      String pacienteId, String tratamientoId, DateTime fecha) async {
+    String pacienteId,
+    String tratamientoId,
+    DateTime fecha,
+  ) async {
     final registros = await _fs
         .streamTomasPendientesHoy(pacienteId, tratamientoId)
         .first;
@@ -281,25 +302,19 @@ class _MedicamentosProximosScreenState
   /// que hay que poder leer y acertar rápido. La pestaña activa se marca con
   /// el verde de acento y con la letra más grande, no solo con el color.
   Widget get _barraDePestanas => BottomNavigationBar(
-        currentIndex: _pestana,
-        onTap: (i) => setState(() => _pestana = i),
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: AppColors.accent,
-        unselectedItemColor: AppColors.textSecondary,
-        iconSize: 32,
-        selectedFontSize: 17,
-        unselectedFontSize: 15,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.schedule),
-            label: 'Horario',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.medication),
-            label: 'Historial',
-          ),
-        ],
-      );
+    currentIndex: _pestana,
+    onTap: (i) => setState(() => _pestana = i),
+    type: BottomNavigationBarType.fixed,
+    selectedItemColor: AppColors.accent,
+    unselectedItemColor: AppColors.textSecondary,
+    iconSize: 32,
+    selectedFontSize: 17,
+    unselectedFontSize: 15,
+    items: const [
+      BottomNavigationBarItem(icon: Icon(Icons.schedule), label: 'Horario'),
+      BottomNavigationBarItem(icon: Icon(Icons.medication), label: 'Historial'),
+    ],
+  );
 
   /// Contenido de la pestaña "Horario": el botón temporal de diagnóstico y
   /// la lista de medicamentos.
@@ -340,8 +355,10 @@ class _MedicamentosProximosScreenState
       builder: (context, snap) {
         if (snap.hasError) {
           return const Center(
-            child: Text('Error al cargar',
-                style: TextStyle(color: AppColors.textSecondary)),
+            child: Text(
+              'Error al cargar',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
           );
         }
         if (snap.connectionState == ConnectionState.waiting) {
@@ -432,6 +449,8 @@ class _MedicamentosProximosScreenState
   }
 
   TimeOfDay? _proximaToma(Tratamiento t, DateTime ahora) {
+    // Fuera de la fecha de inicio/fin el medicamento no está activo en Horario.
+    if (!VigenciaTratamiento.estaVigente(t, ahora)) return null;
     TimeOfDay? proxima;
     for (final hRaw in t.horarios) {
       // Solo cuenta como "próxima" la hora de un día en que el horario aplica;
@@ -439,8 +458,7 @@ class _MedicamentosProximosScreenState
       if (!hRaw.dias.contains(ahora.weekday)) continue;
       final hh = hRaw.hora.split(':');
       if (hh.length != 2) continue;
-      final hora = TimeOfDay(
-          hour: int.parse(hh[0]), minute: int.parse(hh[1]));
+      final hora = TimeOfDay(hour: int.parse(hh[0]), minute: int.parse(hh[1]));
       if (proxima == null) {
         proxima = hora;
       } else {
@@ -639,8 +657,9 @@ class _DialogoDiagnosticoAlarmasState
                                 const SizedBox(height: 4),
                                 Text(
                                   'Payload: ${p.payload ?? '(sin payload)'}',
-                                  style:
-                                      const TextStyle(fontFamily: 'monospace'),
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                  ),
                                 ),
                                 if (p.title != null && p.title!.isNotEmpty) ...[
                                   const SizedBox(height: 4),
@@ -708,9 +727,14 @@ class _CardMedicamento extends StatelessWidget {
   Widget build(BuildContext context) {
     final bytesFoto =
         (tratamiento.fotoBase64 != null && tratamiento.fotoBase64!.isNotEmpty)
-            ? ImagenService.decodificar(tratamiento.fotoBase64!)
-            : null;
+        ? ImagenService.decodificar(tratamiento.fotoBase64!)
+        : null;
     final tieneFoto = bytesFoto != null;
+    final textoVigencia =
+        VigenciaTratamiento.textoParaPaciente(tratamiento, DateTime.now()) ??
+        ((tratamiento.duracion != null && tratamiento.duracion!.isNotEmpty)
+            ? tratamiento.duracion
+            : null);
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -722,22 +746,24 @@ class _CardMedicamento extends StatelessWidget {
           foregroundImage: tieneFoto ? MemoryImage(bytesFoto) : null,
           child: tieneFoto
               ? null
-              : const Icon(Icons.medication,
-                  size: 32, color: AppColors.accent),
+              : const Icon(Icons.medication, size: 32, color: AppColors.accent),
         ),
         title: Text(
           tratamiento.nombreMedicamento,
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
-        subtitle: Text([
-          if (proxima != null)
-            'Próxima: ${_fmt(proxima!)} · ${tratamiento.dosis} dosis'
-          else
-            'Sin horarios',
-          // Opcional: solo aparece si se informó.
-          if (tratamiento.duracion != null && tratamiento.duracion!.isNotEmpty)
-            tratamiento.duracion!,
-        ].join(' · '), style: const TextStyle(fontSize: 16)),
+        subtitle: Text(
+          [
+            if (proxima != null)
+              'Próxima: ${_fmt(proxima!)} · ${tratamiento.dosis} dosis'
+            else
+              'Sin horarios',
+            // Para tratamientos con fecha se muestra el tiempo restante; para
+            // continuos o con inicio desconocido, el texto guardado.
+            ?textoVigencia,
+          ].join(' · '),
+          style: const TextStyle(fontSize: 16),
+        ),
         trailing: const Icon(Icons.chevron_right, size: 32),
         onTap: onTap,
       ),
@@ -786,9 +812,7 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
       (tratamientos) {
         if (!mounted) return;
         setState(() {
-          _nombres = {
-            for (final t in tratamientos) t.id: t.nombreMedicamento,
-          };
+          _nombres = {for (final t in tratamientos) t.id: t.nombreMedicamento};
         });
       },
       // Si no se pueden leer, cada fila cae al texto genérico.
@@ -812,8 +836,10 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
       builder: (context, snap) {
         if (snap.hasError) {
           return Center(
-            child: Text(snap.error.toString(),
-                style: const TextStyle(color: AppColors.textSecondary)),
+            child: Text(
+              snap.error.toString(),
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
           );
         }
         if (snap.connectionState == ConnectionState.waiting) {
@@ -822,8 +848,10 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
         final registros = snap.data ?? const <RegistroToma>[];
         if (registros.isEmpty) {
           return const Center(
-            child: Text('Todavía no hay tomas registradas.',
-                style: TextStyle(color: AppColors.textSecondary)),
+            child: Text(
+              'Todavía no hay tomas registradas.',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
           );
         }
         return ListView.builder(
@@ -844,8 +872,8 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
   }
 }
 
-  /// Una fila del historial: ícono grande, medicamento y hora. Nada más.
-  class _FilaHistorial extends StatelessWidget {
+/// Una fila del historial: ícono grande, medicamento y hora. Nada más.
+class _FilaHistorial extends StatelessWidget {
   final String nombreMedicamento;
   final RegistroToma registro;
   const _FilaHistorial({
@@ -870,8 +898,7 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
       child: ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: Icon(icono, size: 44, color: color),
         title: Text(
           nombreMedicamento,
@@ -936,8 +963,10 @@ class _Empty extends StatelessWidget {
                   ? 'Ningún medicamento tiene horario para hoy.'
                   : 'Tu cuidador los va a agregar.',
               textAlign: TextAlign.center,
-              style:
-                  const TextStyle(color: AppColors.textSecondary, fontSize: 16),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 16,
+              ),
             ),
           ],
         ),

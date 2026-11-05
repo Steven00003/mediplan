@@ -1,7 +1,11 @@
+import 'package:flutter/foundation.dart';
+
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
 import '../utils/hash_estable.dart';
+import '../utils/vigencia_tratamiento.dart';
 import 'firestore_service.dart';
+import 'notificaciones_service.dart';
 
 /// Una toma programada concreta: la ranura lógica de una dosis.
 ///
@@ -14,15 +18,11 @@ class RanuraToma {
   final String tratamientoId;
   final DateTime horaProgramada;
 
-  const RanuraToma({
-    required this.tratamientoId,
-    required this.horaProgramada,
-  });
+  const RanuraToma({required this.tratamientoId, required this.horaProgramada});
 
   /// Clave estable y comparable de la ranura. Usa el instante en milisegundos
   /// (no `toString()`) porque es lo que realmente se guarda en Firestore.
-  String get clave =>
-      '$tratamientoId|${horaProgramada.millisecondsSinceEpoch}';
+  String get clave => '$tratamientoId|${horaProgramada.millisecondsSinceEpoch}';
 
   @override
   bool operator ==(Object other) =>
@@ -90,6 +90,7 @@ class OmitidaNueva {
 /// registro, que no distingue "no confirmó" de "la app estuvo apagada".
 class OmitidasService {
   final FirestoreService _fs = FirestoreService();
+  final NotificacionesService _notif = NotificacionesService();
 
   /// Cuántos días hacia atrás se revisan al reconciliar.
   ///
@@ -110,6 +111,11 @@ class OmitidasService {
   /// Firma del último conjunto de tomas vencidas ya reconciliado.
   String? _firma;
 
+  /// Estados de tratamientos finalizados cuyas notificaciones ya se cancelaron
+  /// en esta sesión. La clave incluye fecha/duración/horarios para que, si el
+  /// cuidador reactiva y vuelve a finalizar el tratamiento, se cancele de nuevo.
+  final Set<String> _finalizadosCancelados = <String>{};
+
   /// Ranuras de un día concreto según los horarios de cada tratamiento.
   ///
   /// El filtro por día de la semana es lo que impide inventar falsamente: un
@@ -128,6 +134,9 @@ class OmitidasService {
     final vistas = <String>{};
 
     for (final t in tratamientos) {
+      // Fuera de la fecha de inicio/fin no existen ranuras: ni tomas pendientes
+      // ni, por tanto, "olvidadas" posteriores al último día.
+      if (!VigenciaTratamiento.estaVigente(t, dia)) continue;
       for (final h in t.horarios) {
         if (!h.dias.contains(dia.weekday)) continue;
         final hh = h.hora.split(':');
@@ -139,8 +148,7 @@ class OmitidasService {
 
         final ranura = RanuraToma(
           tratamientoId: t.id,
-          horaProgramada:
-              DateTime(dia.year, dia.month, dia.day, hora, minuto),
+          horaProgramada: DateTime(dia.year, dia.month, dia.day, hora, minuto),
         );
         if (vistas.add(ranura.clave)) resultado.add(ranura);
       }
@@ -167,8 +175,9 @@ class OmitidasService {
     final inicioHoy = DateTime(ahora.year, ahora.month, ahora.day);
     final todas = <RanuraToma>[];
     for (var d = diasAtras - 1; d >= 0; d--) {
-      todas.addAll(ranurasDelDia(
-          tratamientos, inicioHoy.subtract(Duration(days: d))));
+      todas.addAll(
+        ranurasDelDia(tratamientos, inicioHoy.subtract(Duration(days: d))),
+      );
     }
 
     todas.sort((a, b) => a.horaProgramada.compareTo(b.horaProgramada));
@@ -209,7 +218,8 @@ class OmitidasService {
     for (final r in registros) {
       if (!r.estado.esTerminal) continue;
       resueltas.add(
-          '${r.tratamientoId}|${r.horaProgramada.millisecondsSinceEpoch}');
+        '${r.tratamientoId}|${r.horaProgramada.millisecondsSinceEpoch}',
+      );
     }
     return resueltas;
   }
@@ -256,7 +266,16 @@ class OmitidasService {
     final momento = ahora ?? DateTime.now();
 
     final tratamientos = await _tratamientosDe(pacienteId, forzar: forzar);
-    final vencidas = ranurasVencidas(tratamientos: tratamientos, ahora: momento);
+
+    // Aprovecha los mismos disparadores de la reconciliación (arranque,
+    // `resumed` y tick de 60 s) para retirar alarmas de tratamientos que ya
+    // terminaron. Es idempotente: solo cancela una vez por estado.
+    await _cancelarNotificacionesDeFinalizados(tratamientos, momento);
+
+    final vencidas = ranurasVencidas(
+      tratamientos: tratamientos,
+      ahora: momento,
+    );
     final firma = firmaDe(vencidas);
 
     if (!forzar && _firma == firma) return const [];
@@ -264,10 +283,16 @@ class OmitidasService {
     // Se releen los registros de la ventana para saber qué falta. El rango
     // arranca a medianoche del primer día revisado y termina mañana, así que
     // cubre con holgura las horas de hoy.
-    final inicioDia = DateTime(momento.year, momento.month, momento.day)
-        .subtract(Duration(days: ventanaDias - 1));
-    final existentes =
-        await _fs.getRegistrosEnRango(pacienteId, inicioDia, inicioDia.add(const Duration(days: ventanaDias + 1)));
+    final inicioDia = DateTime(
+      momento.year,
+      momento.month,
+      momento.day,
+    ).subtract(Duration(days: ventanaDias - 1));
+    final existentes = await _fs.getRegistrosEnRango(
+      pacienteId,
+      inicioDia,
+      inicioDia.add(const Duration(days: ventanaDias + 1)),
+    );
     final resueltas = clavesResueltas(existentes);
 
     final nuevas = <OmitidaNueva>[];
@@ -288,11 +313,13 @@ class OmitidasService {
           break;
         }
       }
-      nuevas.add(OmitidaNueva(
-        tratamientoId: r.tratamientoId,
-        nombreMedicamento: nombreMedicamento,
-        horaProgramada: r.horaProgramada,
-      ));
+      nuevas.add(
+        OmitidaNueva(
+          tratamientoId: r.tratamientoId,
+          nombreMedicamento: nombreMedicamento,
+          horaProgramada: r.horaProgramada,
+        ),
+      );
     }
 
     // La firma se fija al final y no antes: si las escrituras fallaran, el
@@ -308,14 +335,16 @@ class OmitidasService {
     final ahora = DateTime.now();
     final cache = _tratamientosCache;
     final leida = _cacheLeida;
-    final vigente = cache != null &&
+    final vigente =
+        cache != null &&
         leida != null &&
         ahora.difference(leida) < vigenciaCacheTratamientos;
     if (!forzar && vigente) return cache;
 
     try {
-      final tratamientos =
-          await _fs.streamTratamientosDePaciente(pacienteId).first;
+      final tratamientos = await _fs
+          .streamTratamientosDePaciente(pacienteId)
+          .first;
       _tratamientosCache = tratamientos;
       _cacheLeida = ahora;
       return tratamientos;
@@ -326,11 +355,56 @@ class OmitidasService {
     }
   }
 
+  Future<void> _cancelarNotificacionesDeFinalizados(
+    List<Tratamiento> tratamientos,
+    DateTime ahora,
+  ) async {
+    final claves = <String>{};
+    for (final t in tratamientos) {
+      if (VigenciaTratamiento.estaVigente(t, ahora)) continue;
+
+      final clave = _claveEstadoFinalizado(t);
+      claves.add(clave);
+      if (_finalizadosCancelados.contains(clave)) continue;
+
+      try {
+        await _notif.cancelarNotificacionesDeTratamiento(
+          tratamientoId: t.id,
+          horarios: t.horarios,
+        );
+        _finalizadosCancelados.add(clave);
+        debugPrint(
+          'Notificaciones canceladas: el tratamiento ${t.id} terminó.',
+        );
+      } catch (e) {
+        // Best-effort: el siguiente tick reintenta.
+        debugPrint(
+          'No se pudieron cancelar las notificaciones del tratamiento '
+          'finalizado ${t.id}: $e',
+        );
+      }
+    }
+
+    // Si un tratamiento vuelve a estar vigente (el cuidador amplió la
+    // duración), se olvida su estado para poder cancelarlo si vuelve a
+    // terminar.
+    _finalizadosCancelados.removeWhere((clave) => !claves.contains(clave));
+  }
+
+  static String _claveEstadoFinalizado(Tratamiento t) {
+    final horarios = t.horarios
+        .map((h) => '${h.hora}[${(h.dias.toList()..sort()).join(',')}]')
+        .join(';');
+    return '${t.id}|${t.fechaInicio?.toIso8601String()}|'
+        '${t.duracionDias}|$horarios';
+  }
+
   /// Olvida la caché y la firma. Se usa al desvincular para que el siguiente
   /// paciente no herede el estado del anterior.
   void invalidar() {
     _tratamientosCache = null;
     _cacheLeida = null;
     _firma = null;
+    _finalizadosCancelados.clear();
   }
 }

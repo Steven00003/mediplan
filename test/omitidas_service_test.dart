@@ -52,7 +52,7 @@ RegistroToma _registro(
 
 void main() {
   final diario = _tratamiento('t1', const [
-    HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias)
+    HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias),
   ]);
 
   group('EstadoToma', () {
@@ -65,13 +65,16 @@ void main() {
       expect(EstadoToma.pendiente.esTerminal, isFalse);
     });
 
-    test('registraConfirmacion: una toma olvidada no lleva hora de confirmación', () {
-      expect(EstadoToma.tomada.registraConfirmacion, isTrue);
-      expect(EstadoToma.tardia.registraConfirmacion, isTrue);
-      // "Olvidada" ES una toma que nunca se confirmó: sellarle una hora mentiría.
-      expect(EstadoToma.olvidada.registraConfirmacion, isFalse);
-      expect(EstadoToma.pendiente.registraConfirmacion, isFalse);
-    });
+    test(
+      'registraConfirmacion: una toma olvidada no lleva hora de confirmación',
+      () {
+        expect(EstadoToma.tomada.registraConfirmacion, isTrue);
+        expect(EstadoToma.tardia.registraConfirmacion, isTrue);
+        // "Olvidada" ES una toma que nunca se confirmó: sellarle una hora mentiría.
+        expect(EstadoToma.olvidada.registraConfirmacion, isFalse);
+        expect(EstadoToma.pendiente.registraConfirmacion, isFalse);
+      },
+    );
   });
 
   group('ranurasDelDia', () {
@@ -85,13 +88,18 @@ void main() {
 
     test('respeta los días de la semana: lunes aplica, martes no', () {
       final soloLunes = _tratamiento('t1', const [
-        HorarioDia(hora: '08:00', dias: [1])
+        HorarioDia(hora: '08:00', dias: [1]),
       ]);
 
       expect(OmitidasService.ranurasDelDia([soloLunes], _lunes).length, 1);
-      expect(OmitidasService.ranurasDelDia([soloLunes], _martes).isEmpty, isTrue);
       expect(
-          OmitidasService.ranurasDelDia([soloLunes], _miercoles).isEmpty, isTrue);
+        OmitidasService.ranurasDelDia([soloLunes], _martes).isEmpty,
+        isTrue,
+      );
+      expect(
+        OmitidasService.ranurasDelDia([soloLunes], _miercoles).isEmpty,
+        isTrue,
+      );
     });
 
     test('varios tratamientos y horarios generan todas sus ranuras', () {
@@ -100,14 +108,16 @@ void main() {
         HorarioDia(hora: '20:00', dias: HorarioDia.todosLosDias),
       ]);
       final t2 = _tratamiento('t2', const [
-        HorarioDia(hora: '13:00', dias: HorarioDia.todosLosDias)
+        HorarioDia(hora: '13:00', dias: HorarioDia.todosLosDias),
       ]);
 
       final ranuras = OmitidasService.ranurasDelDia([t1, t2], _lunes);
 
       expect(ranuras.length, 3);
       expect(
-        ranuras.map((r) => '${r.tratamientoId}@${r.horaProgramada.hour}').toSet(),
+        ranuras
+            .map((r) => '${r.tratamientoId}@${r.horaProgramada.hour}')
+            .toSet(),
         {'t1@8', 't1@20', 't2@13'},
       );
     });
@@ -135,6 +145,24 @@ void main() {
 
       expect(OmitidasService.ranurasDelDia([raro], _lunes).isEmpty, isTrue);
     });
+
+    test('un tratamiento terminado no genera ranuras después de su fin', () {
+      final deUnDia = Tratamiento(
+        id: 't1',
+        pacienteId: 'p1',
+        nombreMedicamento: 'Paracetamol',
+        dosis: '1',
+        horarios: const [
+          HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias),
+        ],
+        frecuencia: 'Diaria',
+        fechaInicio: _lunes,
+        duracionDias: 1,
+      );
+
+      expect(OmitidasService.ranurasDelDia([deUnDia], _lunes).length, 1);
+      expect(OmitidasService.ranurasDelDia([deUnDia], _martes).isEmpty, isTrue);
+    });
   });
 
   group('ranurasVencidas', () {
@@ -159,18 +187,19 @@ void main() {
       // 19:00: llegó la primera hora pero no la de las 20:00 → nada vencido.
       expect(
         OmitidasService.ranurasVencidas(
-            tratamientos: [t1],
-            ahora: DateTime(2024, 3, 11, 19, 0),
-            diasAtras: 1)
-            .isEmpty,
+          tratamientos: [t1],
+          ahora: DateTime(2024, 3, 11, 19, 0),
+          diasAtras: 1,
+        ).isEmpty,
         isTrue,
       );
 
       // 20:00 en punto: ya llegó el siguiente, la de las 08:00 venció.
       final vencidas = OmitidasService.ranurasVencidas(
-          tratamientos: [t1],
-          ahora: DateTime(2024, 3, 11, 20, 0),
-          diasAtras: 1);
+        tratamientos: [t1],
+        ahora: DateTime(2024, 3, 11, 20, 0),
+        diasAtras: 1,
+      );
       expect(vencidas.length, 1);
       expect(vencidas.first.horaProgramada, DateTime(2024, 3, 11, 8, 0));
     });
@@ -191,10 +220,10 @@ void main() {
       // Si se vincieran entre sí, una toma quedaría "olvidada" en el instante
       // exacto en que vencía, compitiendo con su propia alarma.
       final a = _tratamiento('ta', const [
-        HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias)
+        HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias),
       ]);
       final b = _tratamiento('tb', const [
-        HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias)
+        HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias),
       ]);
 
       final vencidas = OmitidasService.ranurasVencidas(
@@ -206,32 +235,35 @@ void main() {
       expect(vencidas.isEmpty, isTrue);
     });
 
-    test('con dos medicamentos a la misma hora, vence cuando llega OTRO después', () {
-      final a = _tratamiento('ta', const [
-        HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias)
-      ]);
-      final b = _tratamiento('tb', const [
-        HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias)
-      ]);
-      final c = _tratamiento('tc', const [
-        HorarioDia(hora: '20:00', dias: HorarioDia.todosLosDias)
-      ]);
+    test(
+      'con dos medicamentos a la misma hora, vence cuando llega OTRO después',
+      () {
+        final a = _tratamiento('ta', const [
+          HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias),
+        ]);
+        final b = _tratamiento('tb', const [
+          HorarioDia(hora: '08:00', dias: HorarioDia.todosLosDias),
+        ]);
+        final c = _tratamiento('tc', const [
+          HorarioDia(hora: '20:00', dias: HorarioDia.todosLosDias),
+        ]);
 
-      final vencidas = OmitidasService.ranurasVencidas(
-        tratamientos: [a, b, c],
-        ahora: DateTime(2024, 3, 11, 20, 0),
-        diasAtras: 1,
-      );
+        final vencidas = OmitidasService.ranurasVencidas(
+          tratamientos: [a, b, c],
+          ahora: DateTime(2024, 3, 11, 20, 0),
+          diasAtras: 1,
+        );
 
-      // Las DOS de las 08:00 quedan pendientes; la de las 20:00 no (es la última).
-      expect(vencidas.length, 2);
-      expect(vencidas.every((r) => r.horaProgramada.hour == 8), isTrue);
-    });
+        // Las DOS de las 08:00 quedan pendientes; la de las 20:00 no (es la última).
+        expect(vencidas.length, 2);
+        expect(vencidas.every((r) => r.horaProgramada.hour == 8), isTrue);
+      },
+    );
 
     test('no inventa faltas en días que el horario no cubre', () {
       // Solo lunes: el martes no debe generar nada, ni hoy ni en el backfill.
       final soloLunes = _tratamiento('t1', const [
-        HorarioDia(hora: '08:00', dias: [1])
+        HorarioDia(hora: '08:00', dias: [1]),
       ]);
 
       final vencidas = OmitidasService.ranurasVencidas(
@@ -275,8 +307,9 @@ void main() {
       );
 
       expect(
-        vencidas.every((r) =>
-            r.horaProgramada.isAfter(DateTime(2024, 3, 10, 23, 59))),
+        vencidas.every(
+          (r) => r.horaProgramada.isAfter(DateTime(2024, 3, 10, 23, 59)),
+        ),
         isTrue,
       );
     });
@@ -289,29 +322,36 @@ void main() {
       for (final estado in [
         EstadoToma.tomada,
         EstadoToma.tardia,
-        EstadoToma.olvidada
+        EstadoToma.olvidada,
       ]) {
         expect(
           OmitidasService.clavesResueltas([_registro('t1', ranura, estado)])
-              .contains(RanuraToma(tratamientoId: 't1', horaProgramada: ranura).clave),
+              .contains(
+                RanuraToma(tratamientoId: 't1', horaProgramada: ranura).clave,
+              ),
           isTrue,
           reason: '$estado debería resolver la ranura',
         );
       }
     });
 
-    test('pospuesta NO cierra la cuenta: se reagendó, sigue sin resolverse', () {
-      expect(
-        OmitidasService.clavesResueltas(
-            [_registro('t1', ranura, EstadoToma.pospuesta)]),
-        isEmpty,
-      );
-      expect(
-        OmitidasService.clavesResueltas(
-            [_registro('t1', ranura, EstadoToma.pendiente)]),
-        isEmpty,
-      );
-    });
+    test(
+      'pospuesta NO cierra la cuenta: se reagendó, sigue sin resolverse',
+      () {
+        expect(
+          OmitidasService.clavesResueltas([
+            _registro('t1', ranura, EstadoToma.pospuesta),
+          ]),
+          isEmpty,
+        );
+        expect(
+          OmitidasService.clavesResueltas([
+            _registro('t1', ranura, EstadoToma.pendiente),
+          ]),
+          isEmpty,
+        );
+      },
+    );
 
     test('el resultado está indexado por tratamiento + hora exacta', () {
       final claves = OmitidasService.clavesResueltas([
@@ -323,19 +363,24 @@ void main() {
       expect(claves.length, 3);
       expect(
         claves.contains(
-            RanuraToma(tratamientoId: 't1', horaProgramada: ranura).clave),
+          RanuraToma(tratamientoId: 't1', horaProgramada: ranura).clave,
+        ),
         isTrue,
       );
       expect(
         claves.contains(
-            RanuraToma(tratamientoId: 't2', horaProgramada: ranura).clave),
+          RanuraToma(tratamientoId: 't2', horaProgramada: ranura).clave,
+        ),
         isTrue,
       );
       // Otra hora del mismo tratamiento es otra ranura.
       expect(
-        claves.contains(RanuraToma(
-                tratamientoId: 't1', horaProgramada: DateTime(2024, 3, 11, 20))
-            .clave),
+        claves.contains(
+          RanuraToma(
+            tratamientoId: 't1',
+            horaProgramada: DateTime(2024, 3, 11, 20),
+          ).clave,
+        ),
         isTrue,
       );
     });
@@ -351,16 +396,19 @@ void main() {
       );
     });
 
-    test('ranuras distintas producen ids distintos (idempotencia sin choques)', () {
-      final ids = {
-        OmitidasService.idDocumento('t1', DateTime(2024, 3, 11, 8)),
-        OmitidasService.idDocumento('t1', DateTime(2024, 3, 11, 20)),
-        OmitidasService.idDocumento('t2', DateTime(2024, 3, 11, 8)),
-        OmitidasService.idDocumento('t1', DateTime(2024, 3, 12, 8)),
-      };
+    test(
+      'ranuras distintas producen ids distintos (idempotencia sin choques)',
+      () {
+        final ids = {
+          OmitidasService.idDocumento('t1', DateTime(2024, 3, 11, 8)),
+          OmitidasService.idDocumento('t1', DateTime(2024, 3, 11, 20)),
+          OmitidasService.idDocumento('t2', DateTime(2024, 3, 11, 8)),
+          OmitidasService.idDocumento('t1', DateTime(2024, 3, 12, 8)),
+        };
 
-      expect(ids.length, 4);
-    });
+        expect(ids.length, 4);
+      },
+    );
 
     test('el id nunca es el 0 reservado ni vacío', () {
       for (final d in [1, 8, 11, 18, 25]) {

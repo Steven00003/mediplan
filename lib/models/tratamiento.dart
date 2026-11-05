@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// Un horario de toma: una hora concreta y los días de la semana en que aplica.
 ///
 /// [hora] usa el formato "HH:mm" (24h), ej. "08:00".
@@ -39,8 +41,13 @@ class HorarioDia {
 /// aplica), ej. [HorarioDia(hora: "08:00", dias: [1, 2, 3, 4, 5])].
 /// [frecuencia] describe cada cuántas horas o veces al día, ej. "2 veces al día".
 /// [duracion] es texto libre opcional sobre cuánto dura el tratamiento, ej.
-/// "7 días" o "Continuo". Se guarda como null cuando el cuidador no lo
-/// informa; no participa de ninguna consulta `where`.
+/// "7 días" o "Continuo". Se conserva para mostrarlo; la finalización real usa
+/// [duracionDias] y [fechaInicio], no este texto.
+/// [duracionDias] es la duración numérica en días. `null` significa continuo o
+/// desconocido (documentos antiguos): en ambos casos no se calcula finalización.
+/// [fechaInicio] es la fecha local (sin hora) desde la que cuenta el tratamiento.
+/// `null` en documentos antiguos significa "inicio desconocido"; no se calcula
+/// tiempo restante ni finalización hasta que el cuidador los edite y guarde.
 /// [fotoBase64] es la foto real del medicamento codificada en base64 (con data
 /// URI) y guardada dentro del propio documento de Firestore, mostrada en la
 /// pantalla de alarma.
@@ -53,6 +60,8 @@ class Tratamiento {
   final List<HorarioDia> horarios;
   final String frecuencia;
   final String? duracion;
+  final DateTime? fechaInicio;
+  final int? duracionDias;
 
   const Tratamiento({
     required this.id,
@@ -63,6 +72,8 @@ class Tratamiento {
     required this.horarios,
     required this.frecuencia,
     this.duracion,
+    this.fechaInicio,
+    this.duracionDias,
   });
 
   factory Tratamiento.fromMap(String id, Map<String, dynamic> map) {
@@ -76,7 +87,28 @@ class Tratamiento {
       frecuencia: map['frecuencia'] as String? ?? '',
       // Opcional: los documentos anteriores a este campo lo traen ausente.
       duracion: map['duracion'] as String?,
+      fechaInicio: _parseFecha(map['fechaInicio']),
+      duracionDias: _parseEnteroPositivo(map['duracionDias']),
     );
+  }
+
+  /// Normaliza una fecha de Firestore a fecha local sin hora.
+  ///
+  /// Se aceptan `Timestamp` (lo que escribe `toMap` al pasar por Firestore) y
+  /// `DateTime` (tests y documentos ya normalizados en memoria). Cualquier otro
+  /// valor se trata como inicio desconocido.
+  static DateTime? _parseFecha(Object? raw) {
+    if (raw is Timestamp) {
+      final d = raw.toDate();
+      return DateTime(d.year, d.month, d.day);
+    }
+    if (raw is DateTime) return DateTime(raw.year, raw.month, raw.day);
+    return null;
+  }
+
+  static int? _parseEnteroPositivo(Object? raw) {
+    final n = raw is num ? raw.toInt() : int.tryParse('$raw');
+    return n != null && n > 0 ? n : null;
   }
 
   /// Normaliza el campo `horarios` de un documento de Firestore.
@@ -110,6 +142,8 @@ class Tratamiento {
       'horarios': horarios.map((h) => h.toMap()).toList(),
       'frecuencia': frecuencia,
       'duracion': duracion,
+      'fechaInicio': fechaInicio,
+      'duracionDias': duracionDias,
     };
   }
 }

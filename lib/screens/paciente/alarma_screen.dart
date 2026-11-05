@@ -10,6 +10,7 @@ import '../../services/notificaciones_service.dart';
 import '../../services/sensores_service.dart';
 import '../../services/ventana_alarma_service.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/vigencia_tratamiento.dart';
 
 /// Pantalla de alarma del Paciente.
 ///
@@ -189,21 +190,28 @@ class _AlarmaScreenState extends State<AlarmaScreen>
       hour: nuevaHoraProgramada.hour,
       minute: nuevaHoraProgramada.minute,
     );
-    await _notif.programarAlarmaDiaria(
-      id: (widget.tratamiento.id.hashCode & 0x7FFFFFFF) + 1,
-      hora: '${_pad(hora.hour)}:${_pad(hora.minute)}',
-      nombreMedicamento: widget.tratamiento.nombreMedicamento,
-      payload:
-          '${widget.tratamiento.id}|${_pad(hora.hour)}:${_pad(hora.minute)}',
-    );
+    // Si el tratamiento termina hoy, la nueva alarma podría caer ya en el día
+    // siguiente. En ese caso no se programa nada más.
+    if (VigenciaTratamiento.estaVigente(
+      widget.tratamiento,
+      nuevaHoraProgramada,
+    )) {
+      await _notif.programarAlarmaDiaria(
+        id: (widget.tratamiento.id.hashCode & 0x7FFFFFFF) + 1,
+        hora: '${_pad(hora.hour)}:${_pad(hora.minute)}',
+        nombreMedicamento: widget.tratamiento.nombreMedicamento,
+        payload:
+            '${widget.tratamiento.id}|${_pad(hora.hour)}:${_pad(hora.minute)}',
+      );
 
-    // El tardío de la toma pospuesta se programa 15 minutos después de la
-    // nueva alarma, no de la hora original. Es una sola ejecución.
-    await _notif.programarRecordatorioTardioPuntual(
-      tratamientoId: widget.tratamiento.id,
-      horaProgramada: nuevaHoraProgramada,
-      nombreMedicamento: widget.tratamiento.nombreMedicamento,
-    );
+      // El tardío de la toma pospuesta se programa 15 minutos después de la
+      // nueva alarma, no de la hora original. Es una sola ejecución.
+      await _notif.programarRecordatorioTardioPuntual(
+        tratamientoId: widget.tratamiento.id,
+        horaProgramada: nuevaHoraProgramada,
+        nombreMedicamento: widget.tratamiento.nombreMedicamento,
+      );
+    }
 
     await _limpiarYSalir();
   }

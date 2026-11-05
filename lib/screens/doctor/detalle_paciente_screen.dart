@@ -12,6 +12,7 @@ import '../../theme/app_colors.dart';
 import '../../utils/etiqueta_toma.dart';
 import '../../utils/estadisticas.dart';
 import '../../utils/resumen_horario.dart';
+import '../../utils/vigencia_tratamiento.dart';
 import 'editar_tratamiento_screen.dart';
 
 /// Detalle de un paciente: código de vinculación, sus tratamientos y un
@@ -208,9 +209,11 @@ class _PestanaHorario extends StatelessWidget {
             ),
           );
         }
+        final ahora = DateTime.now();
         return Column(
           children: tratamientos.map((t) {
             final (horasTexto, diasTexto) = resumenHorario(t);
+            final finalizado = !VigenciaTratamiento.estaVigente(t, ahora);
             return Card(
               margin: const EdgeInsets.symmetric(vertical: 6),
               child: ListTile(
@@ -221,9 +224,34 @@ class _PestanaHorario extends StatelessWidget {
                         ),
                       )
                     : const CircleAvatar(child: Icon(Icons.medication)),
-                title: Text(
-                  t.nombreMedicamento,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        t.nombreMedicamento,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    if (finalizado)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text(
+                          'Finalizado',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

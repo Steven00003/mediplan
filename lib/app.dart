@@ -17,6 +17,7 @@ import 'services/push_service.dart';
 import 'services/ventana_alarma_service.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
+import 'utils/vigencia_tratamiento.dart';
 import 'widgets/app_logo.dart';
 
 /// Raíz de la aplicación: decide el punto de entrada según el rol.
@@ -187,6 +188,23 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
         await _descartarPayloadInvalido();
         return;
       }
+
+      // Una alarma recurrente puede dispararse antes de que la reconciliación
+      // alcance a cancelarla (p. ej. el paciente no abrió la app en días). El
+      // toque no debe abrir una alarma de un tratamiento ya terminado.
+      if (!VigenciaTratamiento.estaVigente(tratamiento, DateTime.now())) {
+        debugPrint(
+          'Alarma ignorada: el tratamiento ${tratamiento.id} ya terminó. '
+          'Se cancelan sus notificaciones.',
+        );
+        await _notif.cancelarNotificacionesDeTratamiento(
+          tratamientoId: tratamiento.id,
+          horarios: tratamiento.horarios,
+        );
+        await _descartarPayloadInvalido();
+        return;
+      }
+
       if (_appState.pacienteVinculado?.id != pacienteId) {
         await _descartarPayloadInvalido();
         return;
@@ -323,9 +341,7 @@ class HomeRouter extends StatelessWidget {
     final appState = context.watch<AppState>();
 
     if (appState.cargandoPaciente) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return StreamBuilder<User?>(
