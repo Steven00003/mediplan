@@ -58,9 +58,10 @@ class NotificacionesService {
   /// además para cancelar los recordatorios puntuales de un tratamiento.
   static const String _prefijoPayloadRecordatorio = 'recordatorio|';
 
-  /// Canal propio para obtener la zona IANA real del dispositivo. Se usa en
-  /// `inicializar()` para que `timezone` no se quede en UTC por defecto.
-  static const MethodChannel _canalDiagnostico = MethodChannel(
+  /// Canal nativo para datos del sistema que Dart no expone: la zona IANA real,
+  /// el nivel de API y el permiso de pantalla completa. `inicializar()` lo usa
+  /// para que `timezone` no se quede en UTC por defecto.
+  static const MethodChannel _canalSistema = MethodChannel(
     'com.mediplan.mediplan/diagnostico',
   );
 
@@ -158,7 +159,9 @@ class NotificacionesService {
         _registrarPayload(respuesta?.payload, idNotificacion: respuesta?.id);
       }
     } catch (e) {
-      debugPrint('No se pudo leer el lanzamiento por notificación: $e');
+      if (kDebugMode) {
+        debugPrint('No se pudo leer el lanzamiento por notificación: $e');
+      }
     }
 
     await _crearCanales();
@@ -194,13 +197,15 @@ class NotificacionesService {
   /// hora equivocada (o se reprograma para otro día).
   Future<void> _configurarZonaHorariaLocal() async {
     try {
-      final id = await _canalDiagnostico.invokeMethod<String>('timeZoneId');
+      final id = await _canalSistema.invokeMethod<String>('timeZoneId');
       if (id == null || id.isEmpty) return;
       tz.setLocalLocation(tz.getLocation(id));
     } catch (e) {
       // En tests o fuera de Android el canal no existe. Se mantiene el
       // comportamiento anterior (UTC) en vez de romper el arranque.
-      debugPrint('No se pudo configurar la zona horaria local: $e');
+      if (kDebugMode) {
+        debugPrint('No se pudo configurar la zona horaria local: $e');
+      }
     }
   }
 
@@ -282,29 +287,10 @@ class NotificacionesService {
     await ios?.requestPermissions(alert: true, badge: true, sound: true);
   }
 
-  /// Diagnóstico temporal: alarmas que el plugin tiene registradas en el
-  /// sistema. En Android lee la caché de `SharedPreferences` del plugin, así
-  /// que confirma que `zonedSchedule()` llegó a guardar la solicitud, no que
-  /// `AlarmManager` la haya aceptado.
-  Future<List<PendingNotificationRequest>> alarmasProgramadas() =>
-      _plugin.pendingNotificationRequests();
-
-  /// Diagnóstico temporal: estado del permiso de alarmas exactas.
-  ///
-  /// En Android < 12 el plugin devuelve `true` porque el permiso no existe;
-  /// no debe interpretarse como un permiso concedido.
-  Future<bool?> puedeProgramarAlarmasExactas() async {
-    final android = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    return android?.canScheduleExactNotifications();
-  }
-
   /// Nivel de API de Android, o `null` si el canal nativo no está disponible.
   Future<int?> androidSdkInt() async {
     try {
-      return await _canalDiagnostico.invokeMethod<int>('androidSdkInt');
+      return await _canalSistema.invokeMethod<int>('androidSdkInt');
     } catch (_) {
       return null;
     }
@@ -315,7 +301,7 @@ class NotificacionesService {
   /// En Android < 14 el permiso no existe y el canal devuelve `true`.
   Future<bool?> puedeUsarPantallaCompleta() async {
     try {
-      return await _canalDiagnostico.invokeMethod<bool>(
+      return await _canalSistema.invokeMethod<bool>(
         'canUseFullScreenIntent',
       );
     } catch (_) {
@@ -332,15 +318,6 @@ class NotificacionesService {
         >();
     return android?.requestFullScreenIntentPermission();
   }
-
-  /// Diagnóstico temporal: zona horaria que usa `timezone`.
-  ///
-  /// Si vale `UTC`, las horas `HH:mm` se están interpretando como UTC y no
-  /// como hora local del dispositivo.
-  String get zonaHoraria => tz.local.name;
-
-  /// Diagnóstico temporal: hora actual en la zona que usa `timezone`.
-  String get ahoraEnZonaHoraria => tz.TZDateTime.now(tz.local).toString();
 
   /// Programa una alarma **puntual** (una sola ejecución) para un horario
   /// HH:mm.
@@ -763,7 +740,9 @@ class NotificacionesService {
             UILocalNotificationDateInterpretation.absoluteTime,
       );
     } catch (e) {
-      debugPrint('No se pudo programar el recordatorio tardío puntual: $e');
+      if (kDebugMode) {
+        debugPrint('No se pudo programar el recordatorio tardío puntual: $e');
+      }
     }
   }
 
@@ -807,7 +786,9 @@ class NotificacionesService {
         despuesDe: horaProgramada.add(const Duration(minutes: 15)),
       );
     } catch (e) {
-      debugPrint('No se pudo cancelar el recordatorio tardío: $e');
+      if (kDebugMode) {
+        debugPrint('No se pudo cancelar el recordatorio tardío: $e');
+      }
     }
   }
 
@@ -830,7 +811,9 @@ class NotificacionesService {
         ),
       );
     } catch (e) {
-      debugPrint('No se pudo mostrar la felicitación: $e');
+      if (kDebugMode) {
+        debugPrint('No se pudo mostrar la felicitación: $e');
+      }
     }
   }
 
@@ -870,9 +853,11 @@ class NotificacionesService {
         }
       }
     } catch (e) {
-      debugPrint(
-        'No se pudieron cancelar los recordatorios tardíos puntuales: $e',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          'No se pudieron cancelar los recordatorios tardíos puntuales: $e',
+        );
+      }
     }
   }
 

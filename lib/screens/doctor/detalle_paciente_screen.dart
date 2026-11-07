@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -357,7 +358,9 @@ class _PestanaHorario extends StatelessWidget {
         );
       }
     } catch (e) {
-      debugPrint('Error eliminando tratamiento: $e');
+      if (kDebugMode) {
+        debugPrint('Error eliminando tratamiento: $e');
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No se pudo eliminar el medicamento.')),
@@ -756,7 +759,9 @@ class _BtnDesvincular extends StatelessWidget {
         );
       }
     } catch (e) {
-      debugPrint('Error desvinculando dispositivo: $e');
+      if (kDebugMode) {
+        debugPrint('Error desvinculando dispositivo: $e');
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,

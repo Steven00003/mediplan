@@ -67,7 +67,9 @@ class VinculacionService {
         // Si la verificación de unicidad falla (p. ej. las reglas de lectura lo
         // impiden), no bloqueamos la creación: la regla de escritura de
         // `pacientes` no exige códigos únicos.
-        debugPrint('No se pudo verificar unicidad del código: $e');
+        if (kDebugMode) {
+          debugPrint('No se pudo verificar unicidad del código: $e');
+        }
       }
     }
     return _fs.crearPaciente(

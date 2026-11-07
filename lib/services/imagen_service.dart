@@ -41,7 +41,9 @@ class ImagenService {
 
       return '$_prefijo${base64Encode(comprimida!)}';
     } catch (e) {
-      debugPrint('Error foto: $e');
+      if (kDebugMode) {
+        debugPrint('Error foto: $e');
+      }
       return null;
     }
   }
@@ -58,7 +60,9 @@ class ImagenService {
           : dato;
       return base64Decode(limpio);
     } catch (e) {
-      debugPrint('Error foto: $e');
+      if (kDebugMode) {
+        debugPrint('Error foto: $e');
+      }
       return null;
     }
   }

@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -53,10 +54,14 @@ class _CodigoUnirseScreenState extends State<CodigoUnirseScreen> {
     } on FirebaseException catch (e, st) {
       // El detalle técnico queda solo en el log. Al paciente no se le muestra
       // el texto de Firestore.
-      debugPrint('Error de Firebase al vincular (${e.code}): $e\n$st');
+      if (kDebugMode) {
+        debugPrint('Error de Firebase al vincular (${e.code}): $e\n$st');
+      }
       _mostrarErrorDeVinculacion();
     } catch (e, st) {
-      debugPrint('Error inesperado al vincular: $e\n$st');
+      if (kDebugMode) {
+        debugPrint('Error inesperado al vincular: $e\n$st');
+      }
       _mostrarErrorDeVinculacion();
     }
   }

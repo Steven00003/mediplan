@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -178,7 +179,9 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
         );
       }
     } catch (e) {
-      debugPrint('Error foto: $e');
+      if (kDebugMode) {
+        debugPrint('Error foto: $e');
+      }
       if (mounted) {
         setState(() => _cargando = false);
         ScaffoldMessenger.of(context).showSnackBar(

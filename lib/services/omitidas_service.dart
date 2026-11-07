@@ -423,9 +423,9 @@ class OmitidasService {
           _avisosSinTomasEnviados.remove(t.id);
         } catch (e) {
           ok = false;
-          debugPrint(
-            'No se pudo reiniciar ultimoAvisoSinTomas de ${t.id}: $e',
-          );
+          if (kDebugMode) {
+            debugPrint('No se pudo reiniciar ultimoAvisoSinTomas: $e');
+          }
         }
         continue;
       }
@@ -452,9 +452,9 @@ class OmitidasService {
         );
       } catch (e) {
         ok = false;
-        debugPrint(
-          'No se pudo marcar/enviar la alerta sin tomas de ${t.id}: $e',
-        );
+        if (kDebugMode) {
+          debugPrint('No se pudo marcar/enviar la alerta sin tomas: $e');
+        }
       } finally {
         _avisosSinTomasEnCurso.remove(t.id);
       }
@@ -522,15 +522,17 @@ class OmitidasService {
           horarios: t.horarios,
         );
         _finalizadosCancelados.add(clave);
-        debugPrint(
-          'Notificaciones canceladas: el tratamiento ${t.id} terminó.',
-        );
+        if (kDebugMode) {
+          debugPrint('Notificaciones canceladas: el tratamiento terminó.');
+        }
       } catch (e) {
         // Best-effort: el siguiente tick reintenta.
-        debugPrint(
-          'No se pudieron cancelar las notificaciones del tratamiento '
-          'finalizado ${t.id}: $e',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            'No se pudieron cancelar las notificaciones del tratamiento '
+            'finalizado: $e',
+          );
+        }
       }
     }
 

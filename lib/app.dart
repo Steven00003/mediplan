@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -89,7 +90,9 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
 
       await _appState.cargarEstadoInicial();
     } catch (e) {
-      debugPrint('Error de inicialización de MediPlan: $e');
+      if (kDebugMode) {
+        debugPrint('Error de inicialización de MediPlan: $e');
+      }
       // Si la app venía de una notificación, no dejamos la ventana con los
       // flags de alarma mientras se muestra la pantalla de error.
       await _ventanaAlarma.desactivarFlags();
@@ -164,14 +167,18 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
 
       final partes = payload.split('|');
       if (partes.length != 2) {
-        debugPrint('Payload de alarma inválido: $payload');
+        if (kDebugMode) {
+          debugPrint('Payload de alarma inválido');
+        }
         await _descartarPayloadInvalido();
         return;
       }
       final tratamientoId = partes[0].trim();
       final hora = _horaDesdePayload(partes[1].trim());
       if (tratamientoId.isEmpty || hora == null) {
-        debugPrint('Payload de alarma inválido: $payload');
+        if (kDebugMode) {
+          debugPrint('Payload de alarma inválido');
+        }
         await _descartarPayloadInvalido();
         return;
       }
@@ -182,9 +189,11 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       // Solo el paciente vinculado puede abrir tratamientos suyos. Un payload
       // con el id de otro paciente se ignora.
       if (tratamiento == null || tratamiento.pacienteId != pacienteId) {
-        debugPrint(
-          'Alarma ignorada: el tratamiento no existe o es de otro paciente',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            'Alarma ignorada: el tratamiento no existe o es de otro paciente',
+          );
+        }
         await _descartarPayloadInvalido();
         return;
       }
@@ -193,10 +202,12 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       // alcance a cancelarla (p. ej. el paciente no abrió la app en días). El
       // toque no debe abrir una alarma de un tratamiento ya terminado.
       if (!VigenciaTratamiento.estaVigente(tratamiento, DateTime.now())) {
-        debugPrint(
-          'Alarma ignorada: el tratamiento ${tratamiento.id} ya terminó. '
-          'Se cancelan sus notificaciones.',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            'Alarma ignorada: el tratamiento ya terminó. '
+            'Se cancelan sus notificaciones.',
+          );
+        }
         await _notif.cancelarNotificacionesDeTratamiento(
           tratamientoId: tratamiento.id,
           horarios: tratamiento.horarios,
@@ -228,7 +239,9 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       }
     } catch (e) {
       // Un tap sobre una notificación vieja no puede tumbar el arranque.
-      debugPrint('No se pudo abrir la alarma desde la notificación: $e');
+      if (kDebugMode) {
+        debugPrint('No se pudo abrir la alarma desde la notificación: $e');
+      }
       await _descartarPayloadInvalido();
     } finally {
       _procesandoPayload = false;

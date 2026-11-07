@@ -19,10 +19,10 @@ class MainActivity : FlutterActivity() {
         const val METODO_PUEDE_ESCRIBIR = "puedeEscribirAjustes"
         const val METODO_ABRIR_AJUSTES = "abrirAjustesEscritura"
 
-        // Solo para el diagnóstico temporal de alarmas en pantalla.
-        const val CANAL_DIAGNOSTICO = "com.mediplan.mediplan/diagnostico"
+        // Datos del sistema que Dart no expone: zona IANA, nivel de API y
+        // permiso de pantalla completa.
+        const val CANAL_SISTEMA = "com.mediplan.mediplan/diagnostico"
         const val METODO_SDK_INT = "androidSdkInt"
-        const val METODO_VERSION = "androidVersion"
         const val METODO_ZONA_HORARIA = "timeZoneId"
         const val METODO_PUEDE_PANTALLA_COMPLETA = "canUseFullScreenIntent"
 
@@ -58,11 +58,10 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CANAL_DIAGNOSTICO)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CANAL_SISTEMA)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     METODO_SDK_INT -> result.success(Build.VERSION.SDK_INT)
-                    METODO_VERSION -> result.success(Build.VERSION.RELEASE)
                     // java.util.TimeZone.getDefault().id devuelve el ID IANA
                     // real del dispositivo (p. ej. America/Bogota).
                     METODO_ZONA_HORARIA ->

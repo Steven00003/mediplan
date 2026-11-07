@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../models/usuario.dart';
@@ -65,7 +65,9 @@ class AuthService {
     try {
       await _googleSignIn.signOut();
     } catch (e) {
-      debugPrint('Error al cerrar sesión en Google: $e');
+      if (kDebugMode) {
+        debugPrint('Error al cerrar sesión en Google: $e');
+      }
     }
     await _auth.signOut();
   }

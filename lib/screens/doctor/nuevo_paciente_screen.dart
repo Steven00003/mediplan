@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -61,7 +62,9 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
         );
       }
     } catch (e) {
-      debugPrint('Error foto: $e');
+      if (kDebugMode) {
+        debugPrint('Error foto: $e');
+      }
       if (!mounted) return;
       setState(() => _cargando = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -110,7 +113,9 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
         );
       }
     } catch (e) {
-      debugPrint('Error al crear paciente: $e');
+      if (kDebugMode) {
+        debugPrint('Error al crear paciente: $e');
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No se pudo crear el paciente: $e')),

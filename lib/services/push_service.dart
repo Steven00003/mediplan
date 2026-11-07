@@ -65,7 +65,9 @@ class PushService {
       _pushHabilitado = true;
     } catch (e) {
       _pushHabilitado = false;
-      debugPrint('Push deshabilitado (no se pudo leer la credencial): $e');
+      if (kDebugMode) {
+        debugPrint('Push deshabilitado: no se pudo leer la credencial.');
+      }
     }
   }
 
@@ -87,16 +89,22 @@ class PushService {
       try {
         final ajustes = await _messaging.requestPermission();
         if (ajustes.authorizationStatus == AuthorizationStatus.denied) {
-          debugPrint('FCM: permiso de notificaciones denegado');
+          if (kDebugMode) {
+            debugPrint('FCM: permiso de notificaciones denegado');
+          }
         }
       } catch (e) {
-        debugPrint('FCM: no se pudo pedir el permiso de notificaciones: $e');
+        if (kDebugMode) {
+          debugPrint('FCM: no se pudo pedir el permiso de notificaciones: $e');
+        }
       }
 
       _tokenActual = await _obtenerToken();
       await _publicarToken(_tokenActual);
     } catch (e) {
-      debugPrint('FCM: no se pudo registrar el dispositivo: $e');
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo registrar el dispositivo: $e');
+      }
     }
   }
 
@@ -122,7 +130,9 @@ class PushService {
       _tokenActual ??= await _messaging.getToken();
       await _publicarToken(_tokenActual);
     } catch (e) {
-      debugPrint('FCM: no se pudo sincronizar el token: $e');
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo sincronizar el token: $e');
+      }
     }
   }
 
@@ -136,7 +146,9 @@ class PushService {
     try {
       await _fs.guardarTokenCuidador(token);
     } catch (e) {
-      debugPrint('FCM: no se pudo guardar el token en Firestore: $e');
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo guardar el token en Firestore: $e');
+      }
     }
   }
 
@@ -150,7 +162,9 @@ class PushService {
       await _fs.limpiarTokenCuidador();
       await _messaging.deleteToken();
     } catch (e) {
-      debugPrint('FCM: no se pudo limpiar el token: $e');
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo limpiar el token: $e');
+      }
     }
   }
 
@@ -205,12 +219,14 @@ class PushService {
           .timeout(_timeout);
 
       if (respuesta.statusCode != 200) {
-        debugPrint(
-          'FCM: envío rechazado (${respuesta.statusCode}): ${respuesta.body}',
-        );
+        if (kDebugMode) {
+          debugPrint('FCM: envío rechazado (${respuesta.statusCode}).');
+        }
       }
     } catch (e) {
-      debugPrint('FCM: no se pudo enviar el push: $e');
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo enviar el push: $e');
+      }
     }
   }
 
@@ -225,7 +241,9 @@ class PushService {
       return _cliente;
     } catch (e) {
       // Sin red o credencial inválida: se reintenta en el próximo envío.
-      debugPrint('FCM: no se pudo obtener el token OAuth2: $e');
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo obtener el token OAuth2.');
+      }
       return null;
     }
   }

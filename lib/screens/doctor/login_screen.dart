@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
@@ -42,13 +43,15 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       if (_esRegistro) {
-        final cred = await _auth.registrar(
+        await _auth.registrar(
           _nombreController.text.trim(),
           _correoController.text.trim(),
           _contrasenaController.text,
         );
         await _auth.guardarPerfilUsuario(nombre: _nombreController.text.trim());
-        debugPrint('Cuenta creada: ${cred.user?.uid}');
+        if (kDebugMode) {
+          debugPrint('Cuenta creada');
+        }
       } else {
         await _auth.iniciarSesion(
           _correoController.text.trim(),
@@ -64,14 +67,18 @@ class _LoginScreenState extends State<LoginScreen> {
         if (mounted) Navigator.of(context).pop();
       }
     } on FirebaseAuthException catch (e) {
-      debugPrint('Error login: ${e.code}');
+      if (kDebugMode) {
+        debugPrint('Error login: ${e.code}');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error login: ${e.code}')),
         );
       }
     } catch (e) {
-      debugPrint('Error login: $e');
+      if (kDebugMode) {
+        debugPrint('Error login: $e');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error login: $e')),
@@ -97,14 +104,18 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
     } on FirebaseAuthException catch (e) {
-      debugPrint('Error login: ${e.code}');
+      if (kDebugMode) {
+        debugPrint('Error login: ${e.code}');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error login: ${e.code}')),
         );
       }
     } catch (e) {
-      debugPrint('Error login: $e');
+      if (kDebugMode) {
+        debugPrint('Error login: $e');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error login: $e')),

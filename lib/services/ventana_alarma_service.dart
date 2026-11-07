@@ -21,7 +21,9 @@ class VentanaAlarmaService {
     try {
       await _canal.invokeMethod<void>('desactivarFlags');
     } catch (e) {
-      debugPrint('No se pudieron desactivar los flags de la alarma: $e');
+      if (kDebugMode) {
+        debugPrint('No se pudieron desactivar los flags de la alarma: $e');
+      }
     }
   }
 
@@ -36,7 +38,9 @@ class VentanaAlarmaService {
         {'ids': lista},
       );
     } catch (e) {
-      debugPrint('No se pudo cancelar la notificación de la alarma: $e');
+      if (kDebugMode) {
+        debugPrint('No se pudo cancelar la notificación de la alarma: $e');
+      }
     }
   }
 }

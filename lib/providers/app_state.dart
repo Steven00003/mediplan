@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../models/paciente.dart';
@@ -400,15 +401,18 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
               nombreMedicamento: tratamiento.nombreMedicamento,
             );
           } catch (e) {
-            debugPrint(
-              'No se pudieron programar las notificaciones de '
-              '${tratamiento.id}: $e',
-            );
+            if (kDebugMode) {
+              debugPrint(
+                'No se pudieron programar las notificaciones: $e',
+              );
+            }
           }
         }
       }
     } catch (e) {
-      debugPrint('No se pudieron reprogramar las notificaciones: $e');
+      if (kDebugMode) {
+        debugPrint('No se pudieron reprogramar las notificaciones: $e');
+      }
     }
   }
 
