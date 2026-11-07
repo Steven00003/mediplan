@@ -306,9 +306,10 @@ class FirestoreService {
   /// la consulta se deniega (403), aunque los datos sean del propio paciente.
   ///
   /// OJO: esta combinación de igualdad + rango sobre `horaProgramada` necesita
-  /// un índice compuesto que solo existe en la consola de Firebase. Si aparece
-  /// `FAILED_PRECONDITION` ("requires an index") hay que crearlo ahí; desplegar
-  /// `firestore.indexes.json` no sirve porque está vacío.
+  /// un índice compuesto. La definición está en `firestore.indexes.json`
+  /// (commiteado), pero en producción los índices se gestionan desde la consola
+  /// de Firebase: si aparece `FAILED_PRECONDITION` ("requires an index"), hay
+  /// que crearlo o verificarlo ahí.
   Future<List<RegistroToma>> getRegistrosEnRango(
     String pacienteId,
     DateTime desde,
@@ -349,10 +350,10 @@ class FirestoreService {
   /// `streamRegistrosDePaciente` —y no la de [getRegistrosEnRango], que además
   /// lleva dos límites de rango sobre `horaProgramada`— para no depender de si el
   /// índice compuesto que ya sirve a esta alcanza también a una consulta con
-  /// rango. Los índices compuestos solo existen en la consola de Firebase y no
-  /// se pueden desplegar desde el repo, así que no hay forma de comprobar desde
-  /// el código que dos formas distintas de query compartan índice: se reutiliza
-  /// la que la app ya usa en producción.
+  /// rango. El compuesto está definido en `firestore.indexes.json` (commiteado),
+  /// pero los índices de producción se gestionan desde la consola de Firebase,
+  /// así que no hay forma de comprobar desde el código que dos formas distintas
+  /// de query compartan índice: se reutiliza la que la app ya usa en producción.
   ///
   /// [limite] es un tope duro: la ventana de 30 días de las estadísticas puede
   /// superarlo en pacientes con muchos medicamentos, y el recorte se avisa en

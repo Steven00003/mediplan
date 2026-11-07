@@ -1,17 +1,32 @@
 # AGENTS.md
 
-Flutter (Dart) + Firebase medication app. Two UX flows (caregiver/doctor in `lib/screens/doctor/`, patient in `lib/screens/paciente/`). 100% client + Firestore rules — no Cloud Functions, no Storage. Caregiver alerts use a client-sent FCM HTTP v1 push + local notifications (see Push section). `flutter analyze` clean; 77 tests pass.
+Flutter (Dart) + Firebase medication app. Two UX flows (caregiver/doctor in `lib/screens/doctor/`, patient in `lib/screens/paciente/`). 100% client + Firestore rules — no Cloud Functions, no Storage. Caregiver alerts use a client-sent FCM HTTP v1 push + local notifications (see Push section). `flutter analyze` clean; 130 tests pass.
 
 ## Commands (run from `mediplan/`)
 
 - `flutter pub get` — install deps
 - `flutter analyze` — correctness gate (~45s warm, ~150s typical; cold ~300s). Don't kill it.
-- `flutter test` — 7 files / 77 tests (~10-30s). For a single file: `flutter test test/<file>.dart`. Use ASCII `--plain-name` substring for accented names (e.g. `flutter test --plain-name "formato de c"`). Run analyze/test **sequentially**: concurrent invocations contend for the Flutter tool lock and can hang widget tests (`did not complete`) or time out analyze.
+- `flutter test` — 13 files / 130 tests (~20-30s). For a single file: `flutter test test/<file>.dart`. Use ASCII `--plain-name` substring for accented names (e.g. `flutter test --plain-name "formato de c"`). Run analyze/test **sequentially**: concurrent invocations contend for the Flutter tool lock and can hang widget tests (`did not complete`) or time out analyze.
 - `flutter build apk` — needs NDK `flutter.ndkVersion` (28.2.13676358 on 3.47.2). SDK/NDK/AGP/Kotlin/Gradle/Java follow Flutter defaults (see `android/app/build.gradle.kts`; release still signed with the debug key, core-library desugaring on for `flutter_local_notifications`).
-- `firebase deploy --only firestore:rules --project mediplan-35953` — no `.firebaserc`; must specify `--project`. `--only firestore:indexes` is a no-op (indexes live in Firebase console).
+- `firebase deploy --only firestore:rules --project mediplan-35953` — no `.firebaserc`; must specify `--project`. **Nunca despliegues reglas ni índices sin avisar antes qué cambia.** `firestore.indexes.json` está commiteado con 4 compuestos, pero los índices de producción se gestionan desde la consola y `--only firestore:indexes` no se usa en este proyecto.
 - `dart run flutter_launcher_icons` / `dart run flutter_native_splash:create` — regenerate the native launcher icon / splash after editing `assets/icon/` (config in `pubspec.yaml`; not covered by `flutter analyze`/`flutter test`). `icon.png` is the badge used by the launcher/splash **and** by `AppLogo` in-app; `logo_app.png` is an older unused variant.
 
 Toolchain: Flutter 3.47.2 / Dart 3.13.2 / firebase CLI 15.28.2 (pubspec pins `sdk: ^3.13.2`). Git repo on `main` (remote `origin` = github.com/Steven00003/mediplan) with a single commit, so most work may be uncommitted in the working tree. `firebase_options.dart` and `android/app/google-services.json` contain real populated keys for project `mediplan-35953` despite `firebase_options.dart`'s "PLACEHOLDER" header and the README — running `flutterfire configure` would overwrite working config.
+
+## Reglas de trabajo
+
+- Compila siempre con `flutter build apk --debug`. **Nunca** `--release`: la firma release con la clave de depuración cambia la firma y rompe el login de Google.
+- No toques `android/app/build.gradle.kts` ni la configuración de firma.
+- **Nunca** commitees `assets/secrets/` ni credenciales (JSON de cuenta de servicio, tokens, claves).
+- No despliegues reglas de Firestore ni índices sin avisar antes qué cambia.
+- Edita archivos con las herramientas de edición (`edit`/`write`), nunca con `Add-Content` de PowerShell: ya corrompió UTF-8 una vez.
+- Termina cada tarea con `flutter analyze`, `flutter test` y `flutter build apk --debug`, en ese orden, y detente ahí.
+
+## Estado actual
+
+- Fases 0–7 implementadas: auth y vinculación por `vinculos`, tratamientos con vigencia (`fechaInicio`/`duracionDias`), horarios por día, alarmas y avisos locales, reconciliación de tomas olvidadas, alerta de 5 días sin tomas por push FCM, y limpieza/documentación.
+- `flutter analyze` limpio y 130 tests pasan; el último `flutter build apk --debug` fue correcto.
+- **Validación en dispositivo pendiente** para las fases 3, 4, 6 y 7 (FCM real, reglas desplegadas, tarjeta de 5 días, cambio de día y matrices de alarma). Firestore y FCM no tienen cobertura automatizada.
 
 ## Environment/Config Notes
 
@@ -55,16 +70,16 @@ Toolchain: Flutter 3.47.2 / Dart 3.13.2 / firebase CLI 15.28.2 (pubspec pins `sd
 - `pacientes/{id}.cuidadorFcmToken` (optional String): token FCM del cuidador espejado en el doc del paciente para que el dispositivo del paciente pueda enviarle el push (solo el cuidador lo escribe; sin el cambio de reglas). Puede faltar o estar vacío mientras el cuidador no haya abierto su app con permisos.
 
 ## Firestore Rules & API
-- Single `firestore.rules` (73 lines). Helper functions must stay inside `match /databases/{database}/documents` scope. Query filters must prove the allow rule (e.g. caregiver lists filter by `cuidadorId`).
+- Single `firestore.rules` (80 lines). Helper functions must stay inside `match /databases/{database}/documents` scope. Query filters must prove the allow rule (e.g. caregiver lists filter by `cuidadorId`).
 - `cloud_firestore` 5.6.x: `collection('x')` is `CollectionReference<Map<String,dynamic>>` (`.data()` already Map). `doc.get()` nullable → check `exists`, denied read throws `permission-denied`. New data access goes in `FirestoreService`; match existing style when editing mixed raw streams.
-- Indexes: `firestore.indexes.json` empty; composites live in Firebase console only (not testable locally; `firebase deploy --only firestore:indexes` is a no-op). Exactly three `registrosToma` composites are required: `(pacienteId ASC, horaProgramada DESC)` shared by `streamRegistrosDePaciente`, `getRegistrosRecientes`, `streamRegistrosDePacientes` (`whereIn` counts as equality) and `_EstadoReciente` (`detalle_paciente_screen.dart`); `(pacienteId ASC, horaProgramada ASC)` for `getRegistrosEnRango` (reconcile; `FAILED_PRECONDITION` swallowed in `AppState`); `(pacienteId ASC, tratamientoId ASC, horaProgramada ASC)` for `streamTomasPendientesHoy`. Equality-only queries (`buscarPacientePorCodigo`, `streamPacientesDelCuidador`, `streamPacientePorDispositivo`, `streamTratamientosDePaciente`) need **no** composite — Firestore merges single-field indexes. Any new `where`/`orderBy` combination needs a console index or production-only `failed-precondition: The query requires an index`.
+- Indexes: `firestore.indexes.json` **está commiteado y define 4 compuestos** sobre `registrosToma`: `(pacienteId ASC, horaProgramada DESC)` compartido por `streamRegistrosDePaciente`, `getRegistrosRecientes`, `streamRegistrosDePacientes` (`whereIn` counts as equality) y `_EstadoReciente` (`detalle_paciente_screen.dart`); `(pacienteId ASC, horaProgramada ASC)` para `getRegistrosEnRango` (reconcile; `FAILED_PRECONDITION` swallowed in `AppState`); `(pacienteId ASC, tratamientoId ASC, horaProgramada ASC)` para `streamTomasPendientesHoy`; y `(pacienteId ASC, tratamientoId ASC, horaProgramada DESC)` para `getHistorialDeTratamiento` (fallback ASC en memoria si falta). **No modifiques ese archivo ni despliegues índices sin avisar qué cambia**: los índices de producción se gestionan desde la consola de Firebase y `firebase deploy --only firestore:indexes` no se usa aquí. Equality-only queries (`buscarPacientePorCodigo`, `streamPacientesDelCuidador`, `streamPacientePorDispositivo`, `streamTratamientosDePaciente`) need **no** composite — Firestore merges single-field indexes. Any new `where`/`orderBy` combination needs a console index or production-only `failed-precondition: The query requires an index`.
 
 ## Tests & Gotchas
-- 7 files/77 tests, no Firebase init. Pure logic covered; `reconciliar()` not covered. Tests pin alarm hash literals — changing hash breaks them. `OmitidasService.idDocumento` has no pin (risky if hash changes).
+- 13 files/130 tests, no Firebase init. Pure logic covered; `reconciliar()` not covered. Tests pin alarm hash literals — changing hash breaks them. `OmitidasService.idDocumento` has no pin (risky if hash changes).
 - Firestore-dependent flows are verified **only manually**: README's "Prueba del flujo completo" is the current end-to-end script (needs two devices/emulators or the Firestore console).
 - Alarm brightness: `SensoresService.subirBrilloAlMaximo()` requires `WRITE_SETTINGS`; it checks `canChangeSystemBrightness`, opens the special settings page once (`asegurarPermisoBrillo`), and saves the prior system brightness so `restaurarBrillo()` restores it. `screen_brightness` 2.1.11 has no `resetSystemScreenBrightness`, hence the manual save; alarm re-raises on resume.
 - Live bug to know: AndroidManifest declares no `<receiver>` components (ScheduledNotificationReceiver/BootReceiver/ActionBroadcastReceiver) — only permissions, incl. `RECEIVE_BOOT_COMPLETED`; the plugin's own manifest adds none, so scheduled alarms don't survive reboot and action buttons aren't handled. `flutter analyze` cannot catch this.
 - Dead code exists (e.g. `LocalStore.getDispositivoId()`, some old vinculation methods) — don't "fix" them blindly; read comments/symbols first. `usuarios` written only on register/Google (not email/password) if doc doesn't exist.
 
 ## References (trust code over docs)
-- README/ESQUEMA partly stale and its `file.dart:line` references drift. Trust this AGENTS.md and verify against `lib/` when in doubt (ESQUEMA is still the best data-model map despite omissions). Known stale ESQUEMA claims: `generarCodigo()` uses `Random.secure()` (not an LCG), and `tardó`/`olvidó` ARE now produced (alarm + reconciliation) — ESQUEMA says they never are. Both README and ESQUEMA also still say the app uses no FCM, despite the push section above.
+- README sigue parcialmente obsoleto; `ESQUEMA.md` ya se actualizó (FCM, estados `tardó`/`olvidó`, `Random.secure()` en `generarCodigo`) y es el mejor mapa del modelo de datos, pero sus referencias `file.dart:line` pueden desviarse. Verifica siempre contra `lib/`; este AGENTS.md manda.
