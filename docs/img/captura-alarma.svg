@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1080" viewBox="0 0 720 1080" role="img" aria-labelledby="titulo descripcion">
+  <title id="titulo">Captura pendiente: pantalla de alarma</title>
+  <desc id="descripcion">Marcador de posición. No es una captura real de la app.</desc>
+  <rect width="720" height="1080" fill="#F8F9FA"/>
+  <rect x="32" y="32" width="656" height="1016" rx="28" fill="#FFFFFF" stroke="#A8E6B0" stroke-width="6" stroke-dasharray="18 14"/>
+  <text x="360" y="490" text-anchor="middle" font-family="system-ui, sans-serif" font-size="40" font-weight="700" fill="#1B3A21">Captura pendiente:</text>
+  <text x="360" y="545" text-anchor="middle" font-family="system-ui, sans-serif" font-size="40" font-weight="700" fill="#1B3A21">pantalla de alarma</text>
+  <text x="360" y="625" text-anchor="middle" font-family="system-ui, sans-serif" font-size="40" fill="#6B7280">Marcador de posición</text>
+</svg>

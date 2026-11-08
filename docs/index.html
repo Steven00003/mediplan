@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<!--
+  MediPlan · Página de presentación y manual
+  ==========================================
+  ANTES DE PUBLICAR, completa este bloque y la sección #creditos:
+
+    Equipo:   [David Steven Patiño Rueda]
+    Contacto: [correoej123@gmail.com]
+
+  No hay enlaces externos, analíticas, cookies ni recursos remotos.
+  Las capturas son marcadores en docs/img/: reemplázalos por imágenes reales
+  cuando las tengas.
+-->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="MediPlan: pastillero familiar para cuidadores y pacientes. Manual de uso, alarmas, ajustes del celular y privacidad.">
+  <meta name="theme-color" content="#A8E6B0">
+  <title>MediPlan · Pastillero familiar</title>
+  <link rel="icon" href="img/logo.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#contenido">Saltar al contenido</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#inicio" aria-label="MediPlan, volver al inicio">
+        <img src="img/logo.png" alt="Logo de MediPlan: reloj verde con una cápsula y una flecha circular" width="48" height="48">
+        <span>MediPlan</span>
+      </a>
+      <nav aria-label="Navegación principal">
+        <ul class="nav-list">
+          <li><a href="#que-es">Qué es</a></li>
+          <li><a href="#como-funciona">Cómo funciona</a></li>
+          <li><a href="#manual-cuidador">Cuidador</a></li>
+          <li><a href="#manual-paciente">Paciente</a></li>
+          <li><a href="#ajustes">Ajustes</a></li>
+          <li><a href="#faq">Preguntas</a></li>
+          <li><a href="#privacidad">Privacidad</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="contenido">
+    <section id="inicio" class="hero" aria-labelledby="inicio-titulo">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow">Pastillero familiar</p>
+          <h1 id="inicio-titulo">MediPlan</h1>
+          <p class="lead">Una app para que el cuidador organice los medicamentos y el paciente reciba alarmas claras para tomar sus dosis.</p>
+          <p>Pensada para personas con deficiencia cognitiva leve o moderada y para quien las cuida. El cuidador arma el plan; el paciente solo tiene que confirmar cuando suena la alarma.</p>
+          <div class="actions">
+            <a class="btn btn-primary" href="#como-funciona">Cómo funciona</a>
+            <a class="btn btn-secondary" href="#manual-cuidador">Manual</a>
+          </div>
+        </div>
+        <div class="hero-art">
+          <img src="img/logo.png" alt="Logo de MediPlan: círculo verde con un reloj, una cápsula y una flecha circular" width="220" height="220">
+        </div>
+      </div>
+    </section>
+
+    <section id="que-es" class="section" aria-labelledby="que-es-titulo">
+      <div class="wrap">
+        <h2 id="que-es-titulo">Qué es MediPlan</h2>
+        <p>MediPlan es un pastillero familiar. El cuidador crea la ficha del paciente, carga sus tratamientos y define los horarios. El paciente recibe una alarma en su celular y confirma cada toma con un toque.</p>
+        <p>La app separa dos roles. El cuidador entra con una cuenta. El paciente no tiene cuenta: se vincula una sola vez con un código y queda asociado a ese teléfono.</p>
+        <div class="cards two">
+          <article class="card">
+            <h3>Para el cuidador</h3>
+            <p>Agrega pacientes, crea tratamientos, comparte el código y revisa el historial, el horario y las estadísticas de cada persona que cuida.</p>
+          </article>
+          <article class="card">
+            <h3>Para el paciente</h3>
+            <p>Ve sus medicamentos del día, recibe alarmas y confirma con “YA”. También puede posponer con “Recordar” si necesita unos minutos más.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="como-funciona" class="section" aria-labelledby="como-funciona-titulo">
+      <div class="wrap">
+        <h2 id="como-funciona-titulo">Cómo funciona en 3 pasos</h2>
+        <ol class="steps">
+          <li>
+            <h3>El cuidador crea al paciente y su tratamiento</h3>
+            <p>Agrega el nombre, el medicamento, la dosis y los días de la semana en que corresponde cada toma.</p>
+          </li>
+          <li>
+            <h3>El paciente se vincula con un código</h3>
+            <p>Elige “Paciente” y escribe el código <code>MEDI-XXXXXX</code> una sola vez. La app recuerda el vínculo en ese teléfono.</p>
+          </li>
+          <li>
+            <h3>La alarma suena y el paciente confirma</h3>
+            <p>Pulsa “YA” cuando ya tomó la dosis. Si necesita esperar, pulsa “Recordar” y la alarma vuelve en 5 minutos.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="manual-cuidador" class="section" aria-labelledby="manual-cuidador-titulo">
+      <div class="wrap">
+        <h2 id="manual-cuidador-titulo">Manual del cuidador</h2>
+        <p>En la app, el rol del cuidador se llama “Doctor”. No hace falta ser médico: la cuenta es para quien organiza los medicamentos y acompaña al paciente.</p>
+
+        <h3>1. Crea tu cuenta o entra con Google</h3>
+        <ol>
+          <li>Abre la app y elige “Doctor”.</li>
+          <li>Si es tu primera vez, pulsa “¿No tienes cuenta? Regístrate”. Escribe tu nombre, correo y una contraseña de al menos 6 caracteres. Luego pulsa “Registrarme”.</li>
+          <li>También puedes pulsar “Continuar con Google”.</li>
+          <li>Si ya tienes cuenta, escribe correo y contraseña y pulsa “Entrar”.</li>
+        </ol>
+
+        <h3>2. Agrega un paciente</h3>
+        <ol>
+          <li>En “Mis pacientes”, pulsa “Nuevo paciente”.</li>
+          <li>Escribe el nombre del paciente. Es el único dato obligatorio.</li>
+          <li>Si quieres, completa la edad, la condición médica, el contacto de emergencia y una foto.</li>
+          <li>Pulsa “Generar código”. La app crea un código <code>MEDI-XXXXXX</code> y lo muestra en la tarjeta “Código para unirse”.</li>
+        </ol>
+        <figure>
+          <img src="img/captura-panel-cuidador.svg" alt="Captura pendiente: panel del cuidador" width="720" height="1080" loading="lazy">
+          <figcaption>Captura pendiente: panel del cuidador.</figcaption>
+        </figure>
+
+        <h3>3. Crea un tratamiento</h3>
+        <ol>
+          <li>Abre la ficha del paciente y pulsa “Nuevo medicamento”.</li>
+          <li>Completa el nombre del medicamento, la dosis, la frecuencia, la fecha de inicio y la duración.</li>
+          <li>En frecuencia puedes elegir “Diaria”, “Cada 12 h”, “Cada 8 h”, “Semanal” o “Solo cuando sea necesario”.</li>
+          <li>En duración puedes elegir 3, 5, 7, 10, 14, 21 o 30 días, “Continuo” u “Otro (número de días)”.</li>
+          <li>Pulsa “Agregar horario”, elige la hora y marca los días de la semana (L, M, M, J, V, S, D). Puedes agregar varios horarios.</li>
+          <li>Si quieres, agrega una foto del medicamento. Esa foto se muestra en la pantalla de la alarma.</li>
+          <li>Pulsa “Guardar”.</li>
+        </ol>
+        <div class="callout">
+          <p><strong>Importante:</strong> la app programa una alarma por cada combinación de hora y día. Si dejas un horario sin días marcados, el editor marca todos los días para no guardar un horario vacío.</p>
+        </div>
+
+        <h3>4. Comparte el código</h3>
+        <ol>
+          <li>En el detalle del paciente, toca el código de la tarjeta “Código para unirse”. Se copia al portapapeles.</li>
+          <li>Envíaselo al paciente o escríbelo en su celular.</li>
+          <li>El paciente lo ingresa una sola vez en el rol “Paciente”.</li>
+          <li>Cuando se vincula, la tarjeta cambia a “Dispositivo vinculado”.</li>
+        </ol>
+        <figure>
+          <img src="img/captura-codigo.svg" alt="Captura pendiente: código para unirse" width="720" height="1080" loading="lazy">
+          <figcaption>Captura pendiente: código para unirse.</figcaption>
+        </figure>
+
+        <h3>5. Historial, Horario y Estadísticas</h3>
+        <p>La ficha del paciente tiene tres pestañas en la barra inferior. La app abre en “Horario”.</p>
+        <ul>
+          <li><strong>Horario:</strong> los medicamentos con sus horas, días y el resumen de estado reciente.</li>
+          <li><strong>Historial:</strong> las últimas tomas, con el estado “Tomó”, “Tardó”, “Olvidó” o “Pospuesta” y la hora de confirmación cuando existe.</li>
+          <li><strong>Estadísticas:</strong> la adherencia de los últimos 7 días, el reparto de las tomas, el resumen “Día por día”, una ventana aproximada de 30 días y la “Racha a tiempo”.</li>
+        </ul>
+        <figure>
+          <img src="img/captura-estadisticas.svg" alt="Captura pendiente: estadísticas" width="720" height="1080" loading="lazy">
+          <figcaption>Captura pendiente: estadísticas.</figcaption>
+        </figure>
+
+        <h3>6. Aviso de 5 días sin tomas</h3>
+        <p>Si un tratamiento lleva 5 días programados sin ninguna toma confirmada, el cuidador recibe una alerta. También aparece una tarjeta roja con el texto “5 días sin tomas” en el detalle del paciente.</p>
+        <ul>
+          <li>El cálculo se hace cuando la app del paciente revisa sus tomas: al abrirla o mientras está abierta.</li>
+          <li>Una toma pospuesta no cuenta como confirmada. Una toma marcada como “Olvidó” tampoco.</li>
+          <li>El aviso no se repite el mismo día. Si el paciente vuelve a confirmar una toma, el aviso se reinicia.</li>
+        </ul>
+        <div class="callout callout-warning">
+          <p><strong>Ojo:</strong> si el paciente nunca abre la app, el aviso push puede no salir. La tarjeta del cuidador sí se calcula al abrir el detalle del paciente.</p>
+        </div>
+
+        <h3>7. Edita, finaliza o borra un tratamiento</h3>
+        <ul>
+          <li><strong>Editar:</strong> toca un medicamento en la lista, cambia lo que necesites y pulsa “Guardar cambios”. La app cancela las alarmas anteriores y programa las nuevas.</li>
+          <li><strong>Finalizar:</strong> no hay un botón “Finalizar”. La app marca “Finalizado” cuando pasa el último día de la duración elegida; la fecha de inicio cuenta como día 1. Cuando la app detecta que terminó, cancela las alarmas de ese tratamiento. Si eliges “Continuo”, no se finaliza solo.</li>
+          <li><strong>Borrar:</strong> usa el ícono de papelera y confirma “Eliminar”. Se cancelan las alarmas y se borra el tratamiento. Esta acción no se puede deshacer. El historial de tomas anteriores se conserva.</li>
+        </ul>
+
+        <h3>8. Desvincula el dispositivo</h3>
+        <ol>
+          <li>Entra al detalle del paciente y baja hasta el botón “Desvincular dispositivo”.</li>
+          <li>Confirma “Desvincular”.</li>
+          <li>El paciente deja de ver sus medicamentos en ese teléfono. Para volver a vincularlo, comparte el código otra vez.</li>
+        </ol>
+        <p>El paciente no puede desvincularse solo: esa acción la hace el cuidador.</p>
+      </div>
+    </section>
+
+    <section id="manual-paciente" class="section" aria-labelledby="manual-paciente-titulo">
+      <div class="wrap">
+        <h2 id="manual-paciente-titulo">Manual del paciente</h2>
+
+        <h3>1. Elige “Paciente”</h3>
+        <p>En la pantalla inicial, el botón “Paciente” tiene la descripción “Tomo mis medicinas”. Ese es el camino del paciente.</p>
+        <figure>
+          <img src="img/captura-seleccion-rol.svg" alt="Captura pendiente: selección de rol" width="720" height="1080" loading="lazy">
+          <figcaption>Captura pendiente: selección de rol.</figcaption>
+        </figure>
+
+        <h3>2. Escribe el código una sola vez</h3>
+        <ol>
+          <li>La pantalla dice “Código para unirse” y “Tu cuidador te dio un código. Escríbelo acá para empezar.”</li>
+          <li>Escribe el código <code>MEDI-XXXXXX</code> y pulsa “Unirme”.</li>
+          <li>Si el código no existe, la app muestra “Código inválido. Revisa el código.”</li>
+          <li>Si ya está vinculado a otro teléfono, muestra “Este código ya está vinculado a otro dispositivo. Pide al cuidador que lo desvincule.”</li>
+        </ol>
+        <p>Después de vincularse, la app recuerda el vínculo. Al volver a abrirla verás “Continuar como paciente” y “Usar otro código”.</p>
+
+        <h3>3. La pantalla de la alarma</h3>
+        <p>Cuando llega la hora, la app muestra la foto del medicamento si la cargaste, la dosis y el nombre. También intenta abrirse a pantalla completa.</p>
+        <ul>
+          <li><strong>YA:</strong> confirma que el paciente tomó la dosis.</li>
+          <li><strong>Recordar:</strong> pospone la alarma 5 minutos. La app registra la toma como “Pospuesta” y vuelve a sonar.</li>
+          <li><strong>Tomó:</strong> el paciente confirmó dentro de los primeros 15 minutos.</li>
+          <li><strong>Tardó:</strong> el paciente confirmó después de 15 minutos.</li>
+          <li><strong>Olvidó:</strong> la toma quedó sin confirmar y la app la marcó como olvidada al revisar las tomas vencidas.</li>
+        </ul>
+        <div class="callout">
+          <p><strong>Pantalla completa:</strong> si el celular está desbloqueado y en uso, Android puede mostrar un aviso en lugar de abrir la alarma a pantalla completa. La alarma sigue estando; toca el aviso para abrirla.</p>
+        </div>
+        <figure>
+          <img src="img/captura-alarma.svg" alt="Captura pendiente: pantalla de alarma" width="720" height="1080" loading="lazy">
+          <figcaption>Captura pendiente: pantalla de alarma.</figcaption>
+        </figure>
+
+        <h3>4. Las notificaciones</h3>
+        <ul>
+          <li><strong>5 minutos antes:</strong> “Tu medicina se acerca”. El texto dice el medicamento y la hora, y pide ir preparando la dosis.</li>
+          <li><strong>Al confirmar:</strong> “¡Bien hecho!” con el texto “Toma registrada. Sigue así.”</li>
+          <li><strong>15 minutos después sin confirmar:</strong> “¿Ya tomaste tu medicina?”. El texto recuerda el medicamento y la hora, y pide marcarla con “YA”.</li>
+          <li><strong>Si pospones:</strong> la alarma vuelve en 5 minutos y el recordatorio tardío se mueve a 15 minutos después de la nueva hora.</li>
+        </ul>
+        <p>La alarma principal se repite cada semana en los días que marcó el cuidador.</p>
+
+        <h3>5. Desliza para ver más</h3>
+        <p>La alarma tiene una pista que dice “Desliza para ver más”. Al bajar encuentras:</p>
+        <ul>
+          <li><strong>Próxima toma:</strong> el día, la hora y una cuenta regresiva. Si es la última, muestra “Esta es tu última toma”.</li>
+          <li><strong>Historial de este medicamento:</strong> las últimas tomas con “A tiempo”, “Tardó”, “Olvidó” o “Pospuesta”.</li>
+          <li><strong>Tiempo restante:</strong> solo si el tratamiento tiene fecha de inicio y duración.</li>
+        </ul>
+
+        <h3>6. “Salir” y “Continuar como paciente”</h3>
+        <ul>
+          <li>Pulsa “Salir” arriba a la derecha o mantén pulsada la pantalla. Confirma “Salir”.</li>
+          <li>La app vuelve a la selección de rol. La sesión anónima se conserva: “Continuar como paciente” te devuelve sin escribir el código.</li>
+          <li>Para entrar con otro paciente, pulsa “Usar otro código”.</li>
+          <li>El paciente no puede desvincular el teléfono. Eso lo hace el cuidador desde su cuenta.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="ajustes" class="section" aria-labelledby="ajustes-titulo">
+      <div class="wrap">
+        <h2 id="ajustes-titulo">Ajustes del celular para que las alarmas funcionen</h2>
+        <p>Las alarmas se programan en el teléfono. Si Android las bloquea, la toma no suena. Revisa estos puntos, sobre todo la primera vez.</p>
+
+        <h3>Permiso de notificaciones</h3>
+        <p>Cuando abras la app, Android puede pedir permiso para mostrar notificaciones. Acepta. Si lo rechazaste, entra a Ajustes del teléfono, busca MediPlan y activa las notificaciones. Sin este permiso no se ven las alarmas.</p>
+
+        <h3>Alarmas exactas</h3>
+        <p>En Ajustes, busca MediPlan y entra a “Alarmas y recordatorios” o “Alarmas exactas”. Si el teléfono muestra esa opción, déjala activa. El nombre cambia según la marca y la versión de Android.</p>
+
+        <h3>Permiso de brillo</h3>
+        <p>La alarma sube el brillo de la pantalla al máximo. La primera vez, Android abre la pantalla “Modificar las configuraciones del sistema”. Activa MediPlan ahí. Si no lo haces, la alarma sigue sonando, pero sin el brillo extra.</p>
+
+        <h3>Excluir MediPlan del ahorro de batería</h3>
+        <p>El ahorro de batería puede retrasar o cortar las alarmas. Busca MediPlan en los ajustes de batería y elige “Sin restricciones” o “No optimizar”.</p>
+        <ul>
+          <li><strong>Motorola:</strong> Ajustes → Batería → Ahorro de batería, y también Ajustes → Apps → MediPlan → Batería. Elige la opción que no restrinja la app.</li>
+          <li><strong>Otras marcas:</strong> busca “Optimización de batería”, “Inicio automático” o “Administración de batería”. En Xiaomi, Samsung, Huawei, Oppo y vivo suele haber una opción extra para permitir que la app se ejecute en segundo plano.</li>
+        </ul>
+        <p>Evita “Forzar detención” sobre MediPlan: cancela las alarmas programadas. Si el teléfono está en “No molestar” o en silencio, el sonido puede no escucharse.</p>
+
+        <div class="callout callout-warning">
+          <p><strong>Celular desbloqueado y en uso:</strong> Android puede mostrar un aviso en lugar de abrir la pantalla completa de la alarma. Es normal. La alarma sigue activa y se abre al tocar el aviso.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" class="section" aria-labelledby="faq-titulo">
+      <div class="wrap">
+        <h2 id="faq-titulo">Preguntas frecuentes</h2>
+
+        <article class="faq-item">
+          <h3>¿Qué pasa si no hay internet?</h3>
+          <p>Las alarmas ya programadas suenan sin internet. Para confirmar una toma y que el cuidador la vea, hace falta conexión. Si no hay red, el registro puede quedar pendiente hasta que vuelva la conexión.</p>
+        </article>
+
+        <article class="faq-item">
+          <h3>¿Qué pasa si cambio de celular?</h3>
+          <p>El cuidador debe pulsar “Desvincular dispositivo” en el detalle del paciente. Después instalas la app en el teléfono nuevo, eliges “Paciente” y escribes el mismo código.</p>
+        </article>
+
+        <article class="faq-item">
+          <h3>¿Por qué el código dice “ya vinculado a otro dispositivo”?</h3>
+          <p>Porque ese código ya está asociado a otro teléfono. Pide al cuidador que lo desvincule y vuelve a intentarlo. El mensaje completo es: “Este código ya está vinculado a otro dispositivo. Pide al cuidador que lo desvincule.”</p>
+        </article>
+
+        <article class="faq-item">
+          <h3>¿Cómo vinculo otro paciente?</h3>
+          <p>En la pantalla inicial pulsa “Usar otro código” y escribe el código del nuevo paciente. La app muestra el último paciente vinculado en ese teléfono. Si vas a usar el paciente anterior en otro celular, el cuidador debe desvincularlo primero.</p>
+        </article>
+
+        <article class="faq-item">
+          <h3>¿El paciente necesita una cuenta?</h3>
+          <p>No. El paciente entra como usuario anónimo y se identifica con el código que le da el cuidador. No tiene correo ni contraseña.</p>
+        </article>
+
+        <article class="faq-item">
+          <h3>¿Qué pasa cuando termina un tratamiento?</h3>
+          <p>La app lo marca “Finalizado” y cancela sus alarmas. El historial de tomas anteriores se conserva. Si el tratamiento es “Continuo”, no se finaliza solo.</p>
+        </article>
+
+        <article class="faq-item">
+          <h3>¿Por qué no suena la alarma?</h3>
+          <p>Revisa, en este orden: el permiso de notificaciones, las alarmas exactas, el ahorro de batería y el modo “No molestar”. También confirma que el día de hoy esté marcado en el horario y que el tratamiento no esté finalizado. Si el teléfono estaba apagado a esa hora, la alarma no suena.</p>
+        </article>
+
+        <article class="faq-item">
+          <h3>¿Quién ve mis datos?</h3>
+          <p>El cuidador ve los pacientes que creó. El paciente ve los datos del paciente al que está vinculado. Otros cuidadores no pueden leer el perfil, los tratamientos ni las tomas de un paciente ajeno. El índice de códigos (código e identificador del paciente) sí lo puede leer cualquier sesión autenticada, pero no contiene datos clínicos. La app no tiene un panel de administración.</p>
+        </article>
+
+        <article class="faq-item">
+          <h3>¿Funciona en iPhone?</h3>
+          <p>No. Esta versión funciona en Android. No hay una versión para iOS.</p>
+        </article>
+
+        <article class="faq-item">
+          <h3>¿MediPlan reemplaza al médico?</h3>
+          <p>No. MediPlan organiza recordatorios y registros. No diagnostica, no ajusta dosis y no reemplaza la indicación de un médico.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="privacidad" class="section" aria-labelledby="privacidad-titulo">
+      <div class="wrap">
+        <h2 id="privacidad-titulo">Privacidad y seguridad</h2>
+        <p>Esta sección describe lo que la app guarda y lo que permiten las reglas de la base de datos. No prometemos cifrado propio ni garantías que no estén en el código.</p>
+
+        <h3>Qué datos se guardan</h3>
+        <ul>
+          <li><strong>Cuidador:</strong> nombre, correo (si usas cuenta de correo) y el identificador de Firebase Auth.</li>
+          <li><strong>Paciente:</strong> nombre, edad, condición médica, contacto de emergencia y foto. La edad, la condición, el contacto y la foto son opcionales. También se guarda el código de vinculación, el identificador anónimo del teléfono y el token de push del cuidador.</li>
+          <li><strong>Tratamientos:</strong> nombre del medicamento, foto opcional, dosis, horarios con días de la semana, frecuencia, duración, fecha de inicio y la fecha del último aviso de 5 días sin tomas.</li>
+          <li><strong>Tomas:</strong> identificador del medicamento, hora programada, hora de confirmación (si existe) y estado: “Tomó”, “Tardó”, “Olvidó” o “Pospuesta”.</li>
+          <li><strong>Vínculos:</strong> un índice que relaciona el código <code>MEDI-XXXXXX</code> con el identificador del paciente.</li>
+        </ul>
+
+        <h3>Dónde se guardan</h3>
+        <ul>
+          <li>Las cuentas se manejan con Firebase Auth. Los datos se guardan en Cloud Firestore, el servicio de base de datos de Firebase.</li>
+          <li>Las fotos se guardan como texto base64 dentro del documento de Firestore. No se usa Firebase Storage.</li>
+          <li>El teléfono del paciente guarda el código de la última vinculación para que “Continuar como paciente” funcione sin volver a escribirlo.</li>
+          <li>La alerta de 5 días sin tomas se envía por Firebase Cloud Messaging. El aviso incluye el nombre del paciente y el nombre del medicamento.</li>
+        </ul>
+
+        <h3>Qué puede hacer cada rol</h3>
+        <div class="table-wrap">
+          <table>
+            <caption>Acciones permitidas por rol en la app</caption>
+            <thead>
+              <tr>
+                <th scope="col">Acción</th>
+                <th scope="col">Cuidador</th>
+                <th scope="col">Paciente</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Crear pacientes</td>
+                <td>Sí</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>Crear, editar y borrar tratamientos</td>
+                <td>Sí, de sus pacientes</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>Ver tratamientos e historial</td>
+                <td>Sí, de sus pacientes</td>
+                <td>Sí, del paciente vinculado</td>
+              </tr>
+              <tr>
+                <td>Ver estadísticas</td>
+                <td>Sí, de sus pacientes</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>Confirmar o posponer una toma</td>
+                <td>No desde la app</td>
+                <td>Sí</td>
+              </tr>
+              <tr>
+                <td>Desvincular el teléfono</td>
+                <td>Sí</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>Leer los datos de un paciente de otro cuidador</td>
+                <td>No</td>
+                <td>No</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Lo que no prometemos</h3>
+        <ul>
+          <li>No hay cifrado propio ni cifrado de extremo a extremo. La seguridad de acceso depende de Firebase Auth y de las reglas de Firestore.</li>
+          <li>No hay auditoría de seguridad ni garantía de disponibilidad.</li>
+          <li>La app no incluye módulos de analítica, publicidad ni rastreadores.</li>
+          <li>Esta es una versión académica. No uses datos reales de pacientes.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="limitaciones" class="section" aria-labelledby="limitaciones-titulo">
+      <div class="wrap">
+        <h2 id="limitaciones-titulo">Limitaciones conocidas y aviso</h2>
+        <div class="callout callout-danger">
+          <p><strong>MediPlan no es un dispositivo médico.</strong> No diagnostica, no ajusta dosis y no reemplaza la indicación de un médico. Si hay una duda sobre un tratamiento, consulta con un profesional de la salud.</p>
+        </div>
+        <ul>
+          <li>Es un proyecto académico de la UTS.</li>
+          <li>Funciona en Android. No hay versión para iOS.</li>
+          <li>Las alarmas dependen de los permisos y del ahorro de batería del teléfono. Cada marca de Android los organiza distinto.</li>
+          <li>El aviso de 5 días sin tomas se calcula cuando la app del paciente revisa sus tomas. Si el paciente nunca abre la app, el push puede no salir; la tarjeta del cuidador sí se calcula al abrir el detalle.</li>
+          <li>Si el teléfono está apagado a la hora de la toma, la alarma no suena.</li>
+          <li>Esta versión es académica y no está preparada para producción ni para datos reales de pacientes.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="creditos" class="section" aria-labelledby="creditos-titulo">
+      <div class="wrap">
+        <h2 id="creditos-titulo">Créditos y contacto</h2>
+        <div class="credits">
+          <p><strong>Proyecto académico de la UTS.</strong></p>
+          <p>Equipo: <strong>[David Steven Patiño Rueda]</strong></p>
+          <p>Contacto: <strong>[dspatino@uts.edu.co]</strong></p>
+          <p>Hecho con Flutter y Firebase.</p>
+        </div>
+        <p class="todo">Marcadores pendientes de completar antes de publicar: nombres del equipo y correo de contacto.</p>
+        <p>Esta página no usa cookies, analíticas ni recursos externos. Las fuentes son las del sistema.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p><strong>MediPlan · Pastillero familiar</strong></p>
+      <p>Proyecto académico de la UTS. No es un dispositivo médico y no reemplaza la indicación de un médico.</p>
+      <nav aria-label="Navegación del pie de página">
+        <ul class="footer-nav">
+          <li><a href="#inicio">Inicio</a></li>
+          <li><a href="#manual-cuidador">Manual del cuidador</a></li>
+          <li><a href="#manual-paciente">Manual del paciente</a></li>
+          <li><a href="#ajustes">Ajustes</a></li>
+          <li><a href="#privacidad">Privacidad</a></li>
+          <li><a href="#creditos">Créditos</a></li>
+        </ul>
+      </nav>
+      <p>Sin cookies, sin analíticas y sin recursos externos.</p>
+      <p class="no-print">Para imprimir el manual, usa la opción Imprimir de tu navegador.</p>
+    </div>
+  </footer>
+</body>
+</html>
