@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../constants.dart';
 import '../providers/app_state.dart';
 import '../services/local_store.dart';
 import '../theme/app_colors.dart';
@@ -10,11 +11,6 @@ import '../widgets/app_logo.dart';
 import '../widgets/confirmar_salida_app.dart';
 import 'doctor/login_screen.dart';
 import 'paciente/codigo_unirse_screen.dart';
-
-/// URL temporal del sitio del proyecto (mientras el equipo crea la página
-/// propia). Se abre en el navegador externo al tocar el logo.
-/// TODO: reemplazar por la página propia del proyecto.
-const _urlProyecto = 'https://www.uts.edu.co';
 
 /// Pantalla inicial: el usuario elige su rol.
 ///
@@ -147,8 +143,8 @@ class _SeleccionRolScreenState extends State<SeleccionRolScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Huevo de pascua: tocar el logo abre la página del proyecto en
-                // el navegador externo. Sin indicador visual a propósito.
+                // Tocar el logo abre la landing en el navegador externo.
+                // Sin indicador visual a propósito.
                 GestureDetector(
                   onTap: () => _abrirPaginaProyecto(context),
                   child: const AppLogo(
@@ -210,21 +206,27 @@ class _SeleccionRolScreenState extends State<SeleccionRolScreen> {
     );
   }
 
-  /// Abre la página del proyecto en el navegador externo del teléfono.
-  /// Fallo silencioso salvo un aviso breve: no debe romper el flujo de rol.
+  /// Abre la landing en el navegador externo del teléfono.
+  /// Si no hay navegador o el lanzamiento falla, avisa sin romper el flujo.
   Future<void> _abrirPaginaProyecto(BuildContext context) async {
+    var abierto = false;
     try {
-      await launchUrl(
-        Uri.parse(_urlProyecto),
+      abierto = await launchUrl(
+        Uri.parse(urlLanding),
         mode: LaunchMode.externalApplication,
       );
     } catch (_) {
-      // Sin navegador disponible u otro error de lanzamiento.
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo abrir el enlace')),
-        );
-      }
+      abierto = false;
+    }
+
+    if (!abierto && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No pudimos abrir la página. Revisa tu conexión e inténtalo de nuevo.',
+          ),
+        ),
+      );
     }
   }
 }
