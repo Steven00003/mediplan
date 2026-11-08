@@ -7,6 +7,8 @@ import '../models/paciente.dart';
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
 import '../utils/historial_tomas.dart';
+import '../utils/id_ranura.dart';
+import '../utils/registros_toma.dart';
 
 /// El código existe, pero el paciente ya está vinculado a otro UID.
 ///
@@ -15,6 +17,21 @@ import '../utils/historial_tomas.dart';
 /// distinto.
 class DispositivoVinculadoAOtroException implements Exception {
   const DispositivoVinculadoAOtroException();
+}
+
+/// Resultado de intentar escribir una toma en una ranura.
+///
+/// [creado] es `true` solo si esta llamada escribió el registro final. Si la
+/// ranura ya estaba cerrada, [existente] trae el registro que la cerró.
+class ResultadoRegistroToma {
+  final bool creado;
+  final RegistroToma? existente;
+
+  const ResultadoRegistroToma.creado()
+    : creado = true,
+      existente = null;
+
+  const ResultadoRegistroToma.yaRegistrada(this.existente) : creado = false;
 }
 
 /// Capa de acceso a Firestore.
@@ -283,6 +300,136 @@ class FirestoreService {
     }
   }
 
+  /// Lee el registro final de una ranura concreta.
+  ///
+  /// Primero intenta el servidor y, si no hay red, cae a la caché. Se consulta
+  /// por `(pacienteId, tratamientoId, horaProgramada)` y no solo por el id
+  /// determinista para encontrar también los duplicados viejos, que se crearon
+  /// con id automático antes de este cambio.
+  Future<RegistroToma?> getRegistroFinalDeRanura(
+    String pacienteId,
+    String tratamientoId,
+    DateTime horaProgramada,
+  ) async {
+    Future<QuerySnapshot<Map<String, dynamic>>> leer(Source source) {
+      return _registrosCollection()
+          .where('pacienteId', isEqualTo: pacienteId)
+          .where('tratamientoId', isEqualTo: tratamientoId)
+          .where('horaProgramada', isEqualTo: horaProgramada)
+          .get(GetOptions(source: source));
+    }
+
+    QuerySnapshot<Map<String, dynamic>> snap;
+    try {
+      snap = await leer(Source.server).timeout(const Duration(seconds: 8));
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') rethrow;
+      snap = await leer(Source.cache);
+    } on TimeoutException {
+      snap = await leer(Source.cache);
+    }
+
+    final finales = snap.docs
+        .map((d) => RegistroToma.fromMap(d.id, d.data()))
+        .where((r) => r.estado.esTerminal)
+        .toList();
+    if (finales.isEmpty) return null;
+
+    // Si hay duplicados viejos, el historial debe conservar la primera
+    // confirmación, no el último documento que llegó.
+    finales.sort(_compararPrimeraConfirmacion);
+    return finales.first;
+  }
+
+  /// Escribe una confirmación final (`tomó`/`tardó`) con el id determinista de
+  /// la ranura.
+  ///
+  /// Usa el mismo id que `OmitidasService` para las tomas olvidadas, de modo
+  /// que confirmar y olvidar compiten por el mismo documento. Si la ranura ya
+  /// tiene un registro final, no escribe nada y lo devuelve. Posponer no usa
+  /// este método: posponer no cierra la ranura.
+  Future<ResultadoRegistroToma> registrarTomaFinal({
+    required String tratamientoId,
+    required String pacienteId,
+    required DateTime horaProgramada,
+    required EstadoToma estado,
+  }) async {
+    if (!estado.esTerminal) {
+      throw ArgumentError.value(
+        estado,
+        'estado',
+        'Solo se puede cerrar una ranura con un estado terminal',
+      );
+    }
+
+    final existente = await getRegistroFinalDeRanura(
+      pacienteId,
+      tratamientoId,
+      horaProgramada,
+    );
+    if (existente != null) {
+      return ResultadoRegistroToma.yaRegistrada(existente);
+    }
+
+    final id = idDocumentoDeRanura(tratamientoId, horaProgramada);
+    final ahora = DateTime.now();
+    final registro = RegistroToma(
+      id: id,
+      tratamientoId: tratamientoId,
+      pacienteId: pacienteId,
+      horaProgramada: horaProgramada,
+      horaConfirmacion: estado.registraConfirmacion ? ahora : null,
+      estado: estado,
+    );
+
+    try {
+      await _registrosCollection().doc(id).set(registro.toMap());
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        // Otra confirmación o la reconciliación ganó la carrera: el `set()` se
+        // convirtió en update y las reglas lo rechazaron. Devolvemos el
+        // registro que ya cerró la ranura.
+        final otro = await getRegistroFinalDeRanura(
+          pacienteId,
+          tratamientoId,
+          horaProgramada,
+        );
+        return ResultadoRegistroToma.yaRegistrada(otro);
+      }
+      rethrow;
+    }
+
+    return const ResultadoRegistroToma.creado();
+  }
+
+  /// Registra una posposición sin cerrar la ranura.
+  ///
+  /// A propósito usa un id automático (no el determinista final): si usara el
+  /// mismo documento, una confirmación posterior tendría que actualizarlo y el
+  /// paciente ya no puede modificar registros existentes.
+  Future<ResultadoRegistroToma> registrarPosposicion({
+    required String tratamientoId,
+    required String pacienteId,
+    required DateTime horaProgramada,
+  }) async {
+    final existente = await getRegistroFinalDeRanura(
+      pacienteId,
+      tratamientoId,
+      horaProgramada,
+    );
+    if (existente != null) {
+      return ResultadoRegistroToma.yaRegistrada(existente);
+    }
+
+    await crearRegistroToma(
+      tratamientoId: tratamientoId,
+      pacienteId: pacienteId,
+      horaProgramada: horaProgramada,
+      estado: EstadoToma.pospuesta,
+    );
+    return const ResultadoRegistroToma.creado();
+  }
+
   /// Confirma la toma con estado [estado]. Devuelve el registro actualizado.
   Future<void> confirmarToma({
     required String registroId,
@@ -292,6 +439,15 @@ class FirestoreService {
       'horaConfirmacion': DateTime.now(),
       'estado': estado.nombre,
     });
+  }
+
+  static int _compararPrimeraConfirmacion(RegistroToma a, RegistroToma b) {
+    final ca = a.horaConfirmacion;
+    final cb = b.horaConfirmacion;
+    if (ca == null && cb == null) return 0;
+    if (ca == null) return 1;
+    if (cb == null) return -1;
+    return ca.compareTo(cb);
   }
 
   /// Registros de un paciente con `horaProgramada` dentro de `[desde, hasta)`.
@@ -332,6 +488,25 @@ class FirestoreService {
         .where('pacienteId', isEqualTo: pacienteId)
         .orderBy('horaProgramada', descending: true)
         .limit(limite)
+        .snapshots()
+        .map(
+          (snap) => RegistrosToma.deduplicarPorRanura(
+            snap.docs.map((d) => RegistroToma.fromMap(d.id, d.data())),
+          ),
+        );
+  }
+
+  /// Stream de los registros de hoy de un paciente, sin filtrar por
+  /// tratamiento. Lo usa la lista del paciente para mostrar el estado de cada
+  /// dosis (Tomada / Tomada con retraso / Pendiente).
+  Stream<List<RegistroToma>> streamRegistrosDePacienteHoy(String pacienteId) {
+    final ahora = DateTime.now();
+    final inicio = DateTime(ahora.year, ahora.month, ahora.day);
+    final fin = inicio.add(const Duration(days: 1));
+    return _registrosCollection()
+        .where('pacienteId', isEqualTo: pacienteId)
+        .where('horaProgramada', isGreaterThanOrEqualTo: inicio)
+        .where('horaProgramada', isLessThan: fin)
         .snapshots()
         .map(
           (snap) => snap.docs

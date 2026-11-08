@@ -11,7 +11,9 @@ import '../../services/firestore_service.dart';
 import '../../services/imagen_service.dart';
 import '../../services/local_store.dart';
 import '../../services/notificaciones_service.dart';
+import '../../services/omitidas_service.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/registros_toma.dart';
 import '../../utils/vigencia_tratamiento.dart';
 import 'alarma_screen.dart';
 
@@ -34,6 +36,11 @@ class _MedicamentosProximosScreenState
   Timer? _timer;
   bool _alarmaAbierta = false;
 
+  /// Registros de hoy para pintar el estado de cada dosis. Se crea una vez por
+  /// paciente para no volver a suscribirse en cada rebuild.
+  Stream<List<RegistroToma>>? _registrosHoy;
+  String? _pacienteIdRegistros;
+
   /// 0 = "Horario" (pestaña inicial, la función principal), 1 = "Historial".
   int _pestana = 0;
 
@@ -47,6 +54,16 @@ class _MedicamentosProximosScreenState
       _revisarTomas();
       _quizasPedirPermisoPantallaCompleta();
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final id = _pacienteId;
+    if (id == null) return;
+    if (id == _pacienteIdRegistros) return;
+    _pacienteIdRegistros = id;
+    _registrosHoy = _fs.streamRegistrosDePacienteHoy(id);
   }
 
   @override
@@ -245,24 +262,13 @@ class _MedicamentosProximosScreenState
     final registros = await _fs
         .streamTomasPendientesHoy(pacienteId, tratamientoId)
         .first;
-    for (final r in registros) {
-      if (!_mismaRanura(r.horaProgramada, fecha)) continue;
-      if (r.estado.esTerminal) return true;
-    }
-    return false;
+    return RegistrosToma.finalDeRanura(
+          registros,
+          tratamientoId: tratamientoId,
+          horaProgramada: fecha,
+        ) !=
+        null;
   }
-
-  /// Dos instantes son la misma ranura si coinciden al minuto.
-  ///
-  /// `horaProgramada` se guarda como `Timestamp` (precisión de milisegundos) y
-  /// se construye desde una hora `HH:mm`, así que a nivel de minuto es exacta y
-  /// comparar más fino solo añadiría ruido.
-  static bool _mismaRanura(DateTime a, DateTime b) =>
-      a.year == b.year &&
-      a.month == b.month &&
-      a.day == b.day &&
-      a.hour == b.hour &&
-      a.minute == b.minute;
 
   @override
   Widget build(BuildContext context) {
@@ -357,29 +363,37 @@ class _MedicamentosProximosScreenState
         final ahora = DateTime.now();
         final todos = snap.data ?? const <Tratamiento>[];
         // Solo se listan los medicamentos que hoy tienen algún horario
-        // aplicable: si hoy no toca, no hay nada que tomar y la tarjeta
-        // solo ocuparía lugar con un "Próxima: —". El predicado es el
-        // propio _proximaToma, así que lista y tarjeta no pueden
-        // discrepar.
+        // aplicable. Si hoy no toca, no hay nada que tomar.
         final tratamientos = todos
-            .where((t) => _proximaToma(t, ahora) != null)
+            .where(
+              (t) => OmitidasService.ranurasDelDia([t], ahora).isNotEmpty,
+            )
             .toList();
         if (tratamientos.isEmpty) {
           return _Empty(hayTratamientos: todos.isNotEmpty);
         }
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: tratamientos.length,
-          itemBuilder: (context, i) {
-            final t = tratamientos[i];
-            final proxima = _proximaToma(t, ahora);
-            return _CardMedicamento(
-              tratamiento: t,
-              proxima: proxima,
-              onTap: () {
-                if (proxima != null) {
-                  _abrirAlarma(t, proxima, pacienteId);
-                }
+        return StreamBuilder<List<RegistroToma>>(
+          stream: _registrosHoy,
+          builder: (context, regSnap) {
+            if (regSnap.connectionState == ConnectionState.waiting &&
+                !regSnap.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            // Si la lectura de hoy falla, se sigue mostrando el horario. La
+            // pantalla de alarma vuelve a comprobar la ranura antes de ofrecer
+            // "YA", así que no se puede confirmar dos veces por esto.
+            final registros = regSnap.data ?? const <RegistroToma>[];
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: tratamientos.length,
+              itemBuilder: (context, i) {
+                final t = tratamientos[i];
+                return _CardMedicamento(
+                  key: ValueKey(t.id),
+                  tratamiento: t,
+                  registros: registros,
+                  onAbrir: (hora) => _abrirAlarma(t, hora, pacienteId),
+                );
               },
             );
           },
@@ -428,90 +442,180 @@ class _MedicamentosProximosScreenState
     }
   }
 
-  TimeOfDay? _proximaToma(Tratamiento t, DateTime ahora) {
-    // Fuera de la fecha de inicio/fin el medicamento no está activo en Horario.
-    if (!VigenciaTratamiento.estaVigente(t, ahora)) return null;
-    TimeOfDay? proxima;
-    for (final hRaw in t.horarios) {
-      // Solo cuenta como "próxima" la hora de un día en que el horario aplica;
-      // si hoy no toca, el medicamento no muestra hora ni se puede abrir.
-      if (!hRaw.dias.contains(ahora.weekday)) continue;
-      final hh = hRaw.hora.split(':');
-      if (hh.length != 2) continue;
-      final hora = TimeOfDay(hour: int.parse(hh[0]), minute: int.parse(hh[1]));
-      if (proxima == null) {
-        proxima = hora;
-      } else {
-        final actual = hora.hour * 60 + hora.minute;
-        final mejor = proxima.hour * 60 + proxima.minute;
-        if (actual < mejor) proxima = hora;
-      }
-    }
-    return proxima;
-  }
 }
 
 class _CardMedicamento extends StatelessWidget {
   final Tratamiento tratamiento;
-  final TimeOfDay? proxima;
-  final VoidCallback onTap;
+  final List<RegistroToma> registros;
+  final ValueChanged<TimeOfDay> onAbrir;
+
   const _CardMedicamento({
+    super.key,
     required this.tratamiento,
-    required this.proxima,
-    required this.onTap,
+    required this.registros,
+    required this.onAbrir,
   });
 
   @override
   Widget build(BuildContext context) {
+    final ahora = DateTime.now();
+    final slots = OmitidasService.ranurasDelDia([tratamiento], ahora)
+      ..sort((a, b) => a.horaProgramada.compareTo(b.horaProgramada));
+    final porRanura = <String, RegistroToma>{
+      for (final r in RegistrosToma.deduplicarPorRanura(registros))
+        RegistrosToma.clave(r): r,
+    };
+
+    TimeOfDay? proximaPendiente;
+    final filas = <Widget>[];
+    for (final slot in slots) {
+      final registro =
+          porRanura[RegistrosToma.claveDeRanura(
+            tratamiento.id,
+            slot.horaProgramada,
+          )];
+      if (!(registro?.estado.esTerminal ?? false) &&
+          proximaPendiente == null) {
+        proximaPendiente = TimeOfDay(
+          hour: slot.horaProgramada.hour,
+          minute: slot.horaProgramada.minute,
+        );
+      }
+      filas.add(_FilaDosis(slot: slot, registro: registro));
+    }
+
     final bytesFoto =
         (tratamiento.fotoBase64 != null && tratamiento.fotoBase64!.isNotEmpty)
         ? ImagenService.decodificar(tratamiento.fotoBase64!)
         : null;
     final tieneFoto = bytesFoto != null;
     final textoVigencia =
-        VigenciaTratamiento.textoParaPaciente(tratamiento, DateTime.now()) ??
+        VigenciaTratamiento.textoParaPaciente(tratamiento, ahora) ??
         ((tratamiento.duracion != null && tratamiento.duracion!.isNotEmpty)
             ? tratamiento.duracion
             : null);
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(16),
-        leading: CircleAvatar(
-          radius: 30,
-          backgroundColor: AppColors.primary,
-          foregroundImage: tieneFoto ? MemoryImage(bytesFoto) : null,
-          child: tieneFoto
-              ? null
-              : const Icon(Icons.medication, size: 32, color: AppColors.accent),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: proximaPendiente == null
+            ? null
+            : () => onAbrir(proximaPendiente!),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 30,
+                backgroundColor: AppColors.primary,
+                foregroundImage: tieneFoto ? MemoryImage(bytesFoto) : null,
+                child: tieneFoto
+                    ? null
+                    : const Icon(
+                        Icons.medication,
+                        size: 32,
+                        color: AppColors.accent,
+                      ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tratamiento.nombreMedicamento,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    ...filas,
+                    if (textoVigencia != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        textoVigencia,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                proximaPendiente == null
+                    ? Icons.check_circle
+                    : Icons.chevron_right,
+                color: proximaPendiente == null
+                    ? AppColors.accent
+                    : AppColors.textSecondary,
+                size: 32,
+              ),
+            ],
+          ),
         ),
-        title: Text(
-          tratamiento.nombreMedicamento,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text(
-          [
-            if (proxima != null)
-              'Próxima: ${_fmt(proxima!)} · ${tratamiento.dosis} dosis'
-            else
-              'Sin horarios',
-            // Para tratamientos con fecha se muestra el tiempo restante; para
-            // continuos o con inicio desconocido, el texto guardado.
-            ?textoVigencia,
-          ].join(' · '),
-          style: const TextStyle(fontSize: 16),
-        ),
-        trailing: const Icon(Icons.chevron_right, size: 32),
-        onTap: onTap,
       ),
     );
   }
+}
 
-  String _fmt(TimeOfDay t) {
-    final h = t.hour.toString().padLeft(2, '0');
-    final m = t.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+/// Una dosis de hoy dentro de la tarjeta de un medicamento.
+class _FilaDosis extends StatelessWidget {
+  final RanuraToma slot;
+  final RegistroToma? registro;
+
+  const _FilaDosis({required this.slot, required this.registro});
+
+  @override
+  Widget build(BuildContext context) {
+    final (etiqueta, color, icono) = switch (registro?.estado) {
+      EstadoToma.tomada => ('Tomada', AppColors.accent, Icons.check_circle),
+      EstadoToma.tardia => (
+        'Tomada con retraso',
+        AppColors.amber,
+        Icons.timer_outlined,
+      ),
+      EstadoToma.olvidada => ('No se tomó', AppColors.error, Icons.cancel),
+      EstadoToma.pospuesta => (
+        'Recordada',
+        AppColors.warning,
+        Icons.schedule,
+      ),
+      _ => ('Pendiente', AppColors.textSecondary, Icons.schedule),
+    };
+    final h = slot.horaProgramada.hour.toString().padLeft(2, '0');
+    final m = slot.horaProgramada.minute.toString().padLeft(2, '0');
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Icon(icono, size: 20, color: color),
+          const SizedBox(width: 8),
+          Text(
+            '$h:$m',
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: AppColors.onGreen,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              etiqueta,
+              style: TextStyle(fontSize: 16, color: color),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

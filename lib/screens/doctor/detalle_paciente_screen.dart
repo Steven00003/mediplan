@@ -13,6 +13,7 @@ import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/etiqueta_toma.dart';
 import '../../utils/estadisticas.dart';
+import '../../utils/registros_toma.dart';
 import '../../utils/resumen_horario.dart';
 import '../../utils/vigencia_tratamiento.dart';
 import 'editar_tratamiento_screen.dart';
@@ -971,14 +972,20 @@ class _EstadoReciente extends StatelessWidget {
             ),
           );
         }
-        final docs = snap.data!.docs;
+        // Los duplicados viejos de una misma ranura no deben inflar el panel.
+        final registros = RegistrosToma.deduplicarPorRanura(
+          snap.data!.docs.map(
+            (d) => RegistroToma.fromMap(
+              d.id,
+              d.data() as Map<String, dynamic>,
+            ),
+          ),
+        );
         int tomadas = 0, tardias = 0, olvidadas = 0;
-        for (final d in docs) {
-          final data = d.data() as Map<String, dynamic>;
-          final estado = data['estado'] as String?;
-          if (estado == 'tomó') tomadas++;
-          if (estado == 'tardó') tardias++;
-          if (estado == 'olvidó') olvidadas++;
+        for (final r in registros) {
+          if (r.estado == EstadoToma.tomada) tomadas++;
+          if (r.estado == EstadoToma.tardia) tardias++;
+          if (r.estado == EstadoToma.olvidada) olvidadas++;
         }
         return Card(
           child: Padding(

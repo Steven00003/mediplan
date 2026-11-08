@@ -72,6 +72,33 @@ void main() {
       expect(r.porcentajeATiempo, 100.0);
     });
 
+    test('duplicados de una ranura cuentan una vez y gana la primera confirmación', () {
+      final t = diario08('t1');
+      final r = resumenCumplimiento(
+        tratamientos: [t],
+        registros: [
+          tomada(
+            't1',
+            DateTime(2026, 3, 11, 8, 0),
+            estado: EstadoToma.tardia,
+            horaConfirmacion: DateTime(2026, 3, 11, 8, 20),
+          ),
+          tomada(
+            't1',
+            DateTime(2026, 3, 11, 8, 0),
+            horaConfirmacion: DateTime(2026, 3, 11, 8, 5),
+          ),
+        ],
+        ahora: ahora,
+        dias: 1,
+      );
+
+      expect(r.esperadas, 1);
+      expect(r.aTiempo, 1);
+      expect(r.tardias, 0);
+      expect(r.sinRegistro, 0);
+    });
+
     test('denominador sale del horario, no de registros', () {
       final t = diario08('t1');
       // No hay registro alguno: eso es una falta, no 100%.

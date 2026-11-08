@@ -1,6 +1,7 @@
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
 import '../services/omitidas_service.dart';
+import 'registros_toma.dart';
 
 /// Cómo resume un día entero de tomas la tira de los últimos 7 días.
 ///
@@ -160,14 +161,14 @@ ResumenCumplimiento resumenCumplimiento({
   // una sola vez acá.
   final ref = ahora.isUtc ? ahora.toLocal() : ahora;
 
-  // Índice por clave de ranura. Se prioriza una confirmación sobre una marca de
-  // olvidada porque una dosis confirmada nunca debe contar como perdida solo
-  // porque además le llegó una.
-  final porClave = <String, List<RegistroToma>>{};
-  for (final r in registros) {
-    final claveNormalizada = _claveNormalizada(r);
-    porClave.putIfAbsent(claveNormalizada, () => <RegistroToma>[]).add(r);
-  }
+  // Índice por clave de ranura. Se conserva un solo registro por dosis: el
+  // terminal con la primera confirmación. Así los duplicados viejos (varios
+  // "YA" sobre la misma ranura) no cuentan dos veces y una confirmación gana
+  // sobre una marca de olvidada.
+  final porClave = <String, RegistroToma>{
+    for (final r in RegistrosToma.deduplicarPorRanura(registros))
+      RegistrosToma.clave(r): r,
+  };
 
   final inicioHoy = DateTime(ref.year, ref.month, ref.day);
   final resumenes = <ResumenDia>[];
@@ -178,18 +179,18 @@ ResumenCumplimiento resumenCumplimiento({
 
     var aTiempo = 0, tardias = 0, olvidadas = 0, sinRegistro = 0;
     for (final slot in slots) {
-      final rs = porClave[slot.clave];
-      if (rs == null || rs.isEmpty) {
+      final r = porClave[slot.clave];
+      if (r == null) {
         sinRegistro++;
-      } else if (rs.any((r) => r.estado == EstadoToma.tomada)) {
+      } else if (r.estado == EstadoToma.tomada) {
         aTiempo++;
-      } else if (rs.any((r) => r.estado == EstadoToma.tardia)) {
+      } else if (r.estado == EstadoToma.tardia) {
         tardias++;
-      } else if (rs.any((r) => r.estado == EstadoToma.olvidada)) {
+      } else if (r.estado == EstadoToma.olvidada) {
         olvidadas++;
       } else {
-        // Solo `pospuesta`: el paciente pidió que le recordaran más tarde y la
-        // ranura sigue sin resolverse.
+        // Solo `pospuesta` (o un estado no terminal): el paciente pidió que le
+        // recordaran más tarde y la ranura sigue sin resolverse.
         sinRegistro++;
       }
     }
@@ -207,12 +208,4 @@ ResumenCumplimiento resumenCumplimiento({
   return ResumenCumplimiento(resumenes);
 }
 
-/// La misma clave que usa `RanuraToma.clave` y `OmitidasService.clavesResueltas`,
-/// reconstruida desde el registro porque no hay forma de obtener un `RanuraToma`
-/// a partir de un `RegistroToma` sin conocer la fecha exacta.
-String _claveNormalizada(RegistroToma r) {
-  final hp = r.horaProgramada.isUtc
-      ? r.horaProgramada.toLocal()
-      : r.horaProgramada;
-  return '${r.tratamientoId}|${hp.millisecondsSinceEpoch}';
-}
+

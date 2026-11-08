@@ -8,11 +8,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mediplan/models/registro_toma.dart';
 import 'package:mediplan/utils/historial_tomas.dart';
 
-RegistroToma _registro(String id, DateTime hora) => RegistroToma(
+RegistroToma _registro(
+  String id,
+  DateTime hora, {
+  DateTime? horaConfirmacion,
+}) => RegistroToma(
   id: id,
   tratamientoId: 't1',
   pacienteId: 'p1',
   horaProgramada: hora,
+  horaConfirmacion: horaConfirmacion,
   estado: EstadoToma.tomada,
 );
 
@@ -39,6 +44,24 @@ void main() {
           for (var i = 0; i < 10; i++) ahora.subtract(Duration(hours: i + 1)),
         ]),
       );
+    });
+
+    test('deduplica por ranura y conserva la primera confirmación', () {
+      final hora = ahora.subtract(const Duration(hours: 2));
+      final resultado = HistorialTomas.recientes([
+        _registro(
+          'segunda',
+          hora,
+          horaConfirmacion: hora.add(const Duration(minutes: 10)),
+        ),
+        _registro(
+          'primera',
+          hora,
+          horaConfirmacion: hora.add(const Duration(minutes: 2)),
+        ),
+      ], ahora: ahora);
+
+      expect(resultado.map((r) => r.id), orderedEquals(['primera']));
     });
 
     test('excluye tomas futuras aunque estén dentro del rango de días', () {

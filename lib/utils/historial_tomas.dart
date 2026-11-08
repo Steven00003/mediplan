@@ -1,4 +1,5 @@
 import '../models/registro_toma.dart';
+import 'registros_toma.dart';
 
 /// Reglas puras del historial de un medicamento en la pantalla de alarma.
 ///
@@ -15,6 +16,10 @@ class HistorialTomas {
   /// Se excluyen las tomas futuras: la alarma puede abrirse antes de la hora
   /// programada (ventana de -5 min) y una toma de hoy más tarde no debe
   /// aparecer como si ya hubiera ocurrido.
+  ///
+  /// Antes de ordenar y recortar se deduplica por ranura, conservando la
+  /// primera confirmación. Los registros duplicados que ya existen en
+  /// Firestore dejan de mostrarse dos veces sin borrar nada.
   static List<RegistroToma> recientes(
     Iterable<RegistroToma> registros, {
     required DateTime ahora,
@@ -31,10 +36,12 @@ class HistorialTomas {
       ahora.day,
     ).subtract(Duration(days: dias - 1));
 
-    final filtrados = registros.where((r) {
-      final hora = r.horaProgramada;
-      return !hora.isAfter(ahora) && !hora.isBefore(inicio);
-    }).toList()..sort((a, b) => b.horaProgramada.compareTo(a.horaProgramada));
+    final filtrados =
+        RegistrosToma.deduplicarPorRanura(registros).where((r) {
+          final hora = r.horaProgramada;
+          return !hora.isAfter(ahora) && !hora.isBefore(inicio);
+        }).toList()
+          ..sort((a, b) => b.horaProgramada.compareTo(a.horaProgramada));
 
     return filtrados.take(limite).toList();
   }

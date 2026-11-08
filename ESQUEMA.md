@@ -382,11 +382,14 @@ sin revisarlo.
 
 ### ID del documento
 
-= **autogenerado por Firestore** en confirmaciones y posposiciones:
-`crearRegistroToma` hace `.add(...)` (`firestore_service.dart:262-284`). La
-reconciliación de olvidadas usa un **id determinista** con `.set()` para que dos
-pasadas solapadas no creen dos documentos (`firestore_service.dart:279-280` y
-`omitidas_service.dart:250-252`).
+= **determinista por ranura** en confirmaciones finales (`tomó`/`tardó`) y en
+olvidadas: `idDocumentoDeRanura(tratamientoId, horaProgramada)` deriva el id de
+`hashEstable('omitida|...')` y se escribe con `.set()`. Así confirmar y olvidar
+compiten por el mismo documento y una segunda confirmación no puede crear otro.
+
+Las posposiciones usan un **id autogenerado** (`.add(...)`): posponer no cierra
+la ranura, y una confirmación posterior debe poder crear el documento final sin
+actualizar el existente.
 
 `confirmarToma` (`:287-295`) apunta a un doc existente con `.doc(id).update(...)`,
 pero está **muerto**: nadie lo llama.
@@ -454,12 +457,14 @@ sonar. No armes queries que asuman unicidad por
 
 | Operación | Condición | Línea |
 |---|---|---|
-| read, update, delete | `esCuidadorDelPaciente(resource.data['pacienteId'])` **o** `esDispositivoVinculado(...)` | 64-65 |
-| create | `esCuidadorDelPaciente(request.resource.data['pacienteId'])` **o** `esDispositivoVinculado(...)` | 66-67 |
+| read | `esCuidadorDelPaciente(resource.data['pacienteId'])` **o** `esDispositivoVinculado(...)` | 64-65 |
+| create | `esCuidadorDelPaciente(request.resource.data['pacienteId'])` **o** `esDispositivoVinculado(...)` | 69-70 |
+| update, delete | solo `esCuidadorDelPaciente(resource.data['pacienteId'])` | 71 |
 
 El paciente **crea** sus propios registros al confirmar o posponer, y la
-reconciliación escribe las olvidadas; el cuidador los **lee** en tiempo real
-para el dashboard.
+reconciliación escribe las olvidadas; **no puede modificar ni borrar** los
+existentes. El cuidador los **lee** en tiempo real para el dashboard y conserva
+la corrección administrativa.
 
 ### Cómo consultar — acá sí hacen falta índices compuestos
 

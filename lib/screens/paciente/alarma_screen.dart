@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../models/registro_toma.dart';
@@ -57,27 +58,33 @@ class _AlarmaScreenState extends State<AlarmaScreen>
   Timer? _vibracionTimer;
   Timer? _relojTimer;
   bool _procesando = false;
+  bool _verificandoRanura = true;
+  bool _ranuraCerrada = false;
+  RegistroToma? _registroFinal;
   bool _flagsVentanaDesactivados = false;
   bool _mostrarPistaScroll = true;
   final ScrollController _scrollController = ScrollController();
   late final Future<List<RegistroToma>> _historialFuturo;
   late final Uint8List? _bytesFoto;
 
-  DateTime get _horaProgramada {
-    final now = DateTime.now();
-    return DateTime(
-      now.year,
-      now.month,
-      now.day,
-      widget.horaProgramada.hour,
-      widget.horaProgramada.minute,
-    );
-  }
+  /// La ranura que abrió esta pantalla, con la fecha del día de apertura.
+  ///
+  /// Se fija una sola vez: si la alarma cruza la medianoche, confirmar no debe
+  /// pasar a escribir la ranura del día siguiente.
+  late final DateTime _horaProgramada;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final ahora = DateTime.now();
+    _horaProgramada = DateTime(
+      ahora.year,
+      ahora.month,
+      ahora.day,
+      widget.horaProgramada.hour,
+      widget.horaProgramada.minute,
+    );
     _scrollController.addListener(_alDesplazar);
     _relojTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
@@ -92,7 +99,7 @@ class _AlarmaScreenState extends State<AlarmaScreen>
     _bytesFoto = (foto != null && foto.isNotEmpty)
         ? ImagenService.decodificar(foto)
         : null;
-    _prepararAlarma();
+    _verificarRanura();
   }
 
   @override
@@ -121,10 +128,48 @@ class _AlarmaScreenState extends State<AlarmaScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed &&
+        !_ranuraCerrada &&
+        !_verificandoRanura) {
       // Al volver al primer plano, reaseguramos la vibración.
       _iniciarVibracionContinua();
       _sensores.subirBrilloAlMaximo();
+    }
+  }
+
+  /// Comprueba si la ranura ya tiene un registro final antes de ofrecer "YA".
+  ///
+  /// Se hace al abrir la pantalla, venga de una notificación, de la ventana
+  /// automática o de la lista. Si el servidor no responde, la lectura cae a la
+  /// caché (ver `FirestoreService.getRegistroFinalDeRanura`).
+  Future<void> _verificarRanura() async {
+    try {
+      final registro = await _fs.getRegistroFinalDeRanura(
+        widget.pacienteId,
+        widget.tratamiento.id,
+        _horaProgramada,
+      );
+      if (!mounted) return;
+      if (registro != null) {
+        _detenerAlarma();
+        setState(() {
+          _registroFinal = registro;
+          _ranuraCerrada = true;
+          _verificandoRanura = false;
+        });
+        return;
+      }
+      setState(() => _verificandoRanura = false);
+      unawaited(_prepararAlarma());
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('No se pudo comprobar si la dosis ya estaba registrada: $e');
+      }
+      if (!mounted) return;
+      // Sin comprobación no se bloquea la toma: el id determinista y las reglas
+      // siguen impidiendo que se cree un segundo registro final.
+      setState(() => _verificandoRanura = false);
+      unawaited(_prepararAlarma());
     }
   }
 
@@ -132,11 +177,14 @@ class _AlarmaScreenState extends State<AlarmaScreen>
     // El brillo al máximo requiere WRITE_SETTINGS en Android: si falta,
     // abrimos la pantalla del sistema para que el usuario lo active.
     await _sensores.asegurarPermisoBrillo();
+    if (!mounted || _ranuraCerrada) return;
     await _sensores.subirBrilloAlMaximo();
+    if (!mounted || _ranuraCerrada) return;
     _iniciarVibracionContinua();
   }
 
   void _iniciarVibracionContinua() {
+    if (_ranuraCerrada) return;
     _vibracionTimer?.cancel();
     _vibracionTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _sensores.vibrarFuerteYContinuo();
@@ -144,10 +192,17 @@ class _AlarmaScreenState extends State<AlarmaScreen>
     _sensores.vibrarFuerteYContinuo();
   }
 
+  void _detenerAlarma() {
+    _vibracionTimer?.cancel();
+    _relojTimer?.cancel();
+    _sensores.detenerVibracion();
+    _sensores.restaurarBrillo();
+  }
+
   /// Confirma la toma: registra como "tomó" (o "tardó" si se pasó del plazo),
   /// cancela el recordatorio tardío de esa ranura y muestra una felicitación.
   Future<void> _confirmar() async {
-    if (_procesando) return;
+    if (_procesando || _ranuraCerrada) return;
     setState(() => _procesando = true);
 
     final horaProgramada = _horaProgramada;
@@ -163,97 +218,136 @@ class _AlarmaScreenState extends State<AlarmaScreen>
         ? EstadoToma.tardia
         : EstadoToma.tomada;
 
-    await _fs.crearRegistroToma(
-      tratamientoId: widget.tratamiento.id,
-      pacienteId: widget.pacienteId,
-      horaProgramada: horaProgramada,
-      estado: estado,
-    );
+    try {
+      final resultado = await _fs.registrarTomaFinal(
+        tratamientoId: widget.tratamiento.id,
+        pacienteId: widget.pacienteId,
+        horaProgramada: horaProgramada,
+        estado: estado,
+      );
+      if (!resultado.creado) {
+        if (!mounted) return;
+        _detenerAlarma();
+        setState(() {
+          _registroFinal = resultado.existente;
+          _ranuraCerrada = true;
+          _procesando = false;
+        });
+        return;
+      }
 
-    // El recordatorio tardío de esta ranura ya no hace falta. Si era un
-    // horario semanal, se reprograma para la semana siguiente; si era una
-    // toma pospuesta, solo se cancela su aviso puntual.
-    await _notif.cancelarRecordatorioTardioDeRanura(
-      tratamientoId: widget.tratamiento.id,
-      horaProgramada: horaProgramada,
-      horarios: widget.tratamiento.horarios,
-      nombreMedicamento: widget.tratamiento.nombreMedicamento,
-    );
+      // El recordatorio tardío de esta ranura ya no hace falta. Si era un
+      // horario semanal, se reprograma para la semana siguiente; si era una
+      // toma pospuesta, solo se cancela su aviso puntual.
+      await _notif.cancelarRecordatorioTardioDeRanura(
+        tratamientoId: widget.tratamiento.id,
+        horaProgramada: horaProgramada,
+        horarios: widget.tratamiento.horarios,
+        nombreMedicamento: widget.tratamiento.nombreMedicamento,
+      );
 
-    await _notif.mostrarFelicitacion(
-      tratamientoId: widget.tratamiento.id,
-      horaProgramada: horaProgramada,
-    );
+      await _notif.mostrarFelicitacion(
+        tratamientoId: widget.tratamiento.id,
+        horaProgramada: horaProgramada,
+      );
 
-    await _limpiarYSalir();
+      await _limpiarYSalir();
+    } catch (e) {
+      if (kDebugMode) debugPrint('No se pudo confirmar la toma: $e');
+      if (!mounted) return;
+      setState(() => _procesando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No pudimos registrar la toma. Inténtalo de nuevo.'),
+        ),
+      );
+    }
   }
 
   /// "Recordar": registra como pospuesta, reprograma la alarma en 5 minutos y
   /// mueve el recordatorio tardío al nuevo desfase.
   Future<void> _recordar() async {
-    if (_procesando) return;
+    if (_procesando || _ranuraCerrada) return;
     setState(() => _procesando = true);
 
     final horaProgramada = _horaProgramada;
 
-    await _fs.crearRegistroToma(
-      tratamientoId: widget.tratamiento.id,
-      pacienteId: widget.pacienteId,
-      horaProgramada: horaProgramada,
-      estado: EstadoToma.pospuesta,
-    );
+    try {
+      final resultado = await _fs.registrarPosposicion(
+        tratamientoId: widget.tratamiento.id,
+        pacienteId: widget.pacienteId,
+        horaProgramada: horaProgramada,
+      );
+      if (!resultado.creado) {
+        if (!mounted) return;
+        _detenerAlarma();
+        setState(() {
+          _registroFinal = resultado.existente;
+          _ranuraCerrada = true;
+          _procesando = false;
+        });
+        return;
+      }
 
-    // Cancela (o rearma para la próxima semana) el tardío de esta ranura.
-    await _notif.cancelarRecordatorioTardioDeRanura(
-      tratamientoId: widget.tratamiento.id,
-      horaProgramada: horaProgramada,
-      horarios: widget.tratamiento.horarios,
-      nombreMedicamento: widget.tratamiento.nombreMedicamento,
-    );
-
-    // Reagenda una alarma local para dentro de 5 minutos.
-    final dentro = DateTime.now().add(const Duration(minutes: 5));
-    final nuevaHoraProgramada = DateTime(
-      dentro.year,
-      dentro.month,
-      dentro.day,
-      dentro.hour,
-      dentro.minute,
-    );
-    final hora = TimeOfDay(
-      hour: nuevaHoraProgramada.hour,
-      minute: nuevaHoraProgramada.minute,
-    );
-    // Si el tratamiento termina hoy, la nueva alarma podría caer ya en el día
-    // siguiente. En ese caso no se programa nada más.
-    if (VigenciaTratamiento.estaVigente(
-      widget.tratamiento,
-      nuevaHoraProgramada,
-    )) {
-      await _notif.programarAlarmaDiaria(
-        id: (widget.tratamiento.id.hashCode & 0x7FFFFFFF) + 1,
-        hora: '${_pad(hora.hour)}:${_pad(hora.minute)}',
+      // Cancela (o rearma para la próxima semana) el tardío de esta ranura.
+      await _notif.cancelarRecordatorioTardioDeRanura(
+        tratamientoId: widget.tratamiento.id,
+        horaProgramada: horaProgramada,
+        horarios: widget.tratamiento.horarios,
         nombreMedicamento: widget.tratamiento.nombreMedicamento,
-        payload:
-            '${widget.tratamiento.id}|${_pad(hora.hour)}:${_pad(hora.minute)}',
       );
 
-      // El tardío de la toma pospuesta se programa 15 minutos después de la
-      // nueva alarma, no de la hora original. Es una sola ejecución.
-      await _notif.programarRecordatorioTardioPuntual(
-        tratamientoId: widget.tratamiento.id,
-        horaProgramada: nuevaHoraProgramada,
-        nombreMedicamento: widget.tratamiento.nombreMedicamento,
+      // Reagenda una alarma local para dentro de 5 minutos.
+      final dentro = DateTime.now().add(const Duration(minutes: 5));
+      final nuevaHoraProgramada = DateTime(
+        dentro.year,
+        dentro.month,
+        dentro.day,
+        dentro.hour,
+        dentro.minute,
+      );
+      final hora = TimeOfDay(
+        hour: nuevaHoraProgramada.hour,
+        minute: nuevaHoraProgramada.minute,
+      );
+      // Si el tratamiento termina hoy, la nueva alarma podría caer ya en el día
+      // siguiente. En ese caso no se programa nada más.
+      if (VigenciaTratamiento.estaVigente(
+        widget.tratamiento,
+        nuevaHoraProgramada,
+      )) {
+        await _notif.programarAlarmaDiaria(
+          id: (widget.tratamiento.id.hashCode & 0x7FFFFFFF) + 1,
+          hora: '${_pad(hora.hour)}:${_pad(hora.minute)}',
+          nombreMedicamento: widget.tratamiento.nombreMedicamento,
+          payload:
+              '${widget.tratamiento.id}|${_pad(hora.hour)}:${_pad(hora.minute)}',
+        );
+
+        // El tardío de la toma pospuesta se programa 15 minutos después de la
+        // nueva alarma, no de la hora original. Es una sola ejecución.
+        await _notif.programarRecordatorioTardioPuntual(
+          tratamientoId: widget.tratamiento.id,
+          horaProgramada: nuevaHoraProgramada,
+          nombreMedicamento: widget.tratamiento.nombreMedicamento,
+        );
+      }
+
+      await _limpiarYSalir();
+    } catch (e) {
+      if (kDebugMode) debugPrint('No se pudo posponer la toma: $e');
+      if (!mounted) return;
+      setState(() => _procesando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No pudimos posponer la toma. Inténtalo de nuevo.'),
+        ),
       );
     }
-
-    await _limpiarYSalir();
   }
 
   Future<void> _limpiarYSalir() async {
-    _vibracionTimer?.cancel();
-    _sensores.detenerVibracion();
-    _sensores.restaurarBrillo();
+    _detenerAlarma();
     await _cancelarNotificacionAlarma();
     await _desactivarFlagsVentana();
     if (mounted) Navigator.of(context).pop();
@@ -308,6 +402,9 @@ class _AlarmaScreenState extends State<AlarmaScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_verificandoRanura) return _pantallaVerificando();
+    if (_ranuraCerrada) return _pantallaRanuraCerrada();
+
     final t = widget.tratamiento;
     final ahora = DateTime.now();
     final proxima = ProximaToma.calcular(
@@ -490,6 +587,104 @@ class _AlarmaScreenState extends State<AlarmaScreen>
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _pantallaVerificando() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              CircularProgressIndicator(color: AppColors.accent),
+              SizedBox(height: 20),
+              Text(
+                'Comprobando esta dosis...',
+                style: TextStyle(color: Colors.white70, fontSize: 20),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _pantallaRanuraCerrada() {
+    final registro = _registroFinal;
+    final olvidada = registro?.estado == EstadoToma.olvidada;
+    final confirmada = registro != null && !olvidada;
+    final hora =
+        registro?.horaConfirmacion ??
+        registro?.horaProgramada ??
+        _horaProgramada;
+    final horaTxt = '${_pad(hora.hour)}:${_pad(hora.minute)}';
+    final titulo = registro == null
+        ? 'Esta dosis ya está registrada'
+        : olvidada
+        ? 'Esta dosis ya pasó'
+        : 'Ya tomaste esta dosis a las $horaTxt';
+    final icono = confirmada || registro == null
+        ? Icons.check_circle
+        : Icons.info_outline;
+    final color = confirmada || registro == null
+        ? AppColors.accent
+        : AppColors.textSecondary;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icono, color: color, size: 110),
+                const SizedBox(height: 24),
+                Text(
+                  titulo,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 30,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '${widget.tratamiento.nombreMedicamento} · $_horaTxt',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 20),
+                ),
+                const SizedBox(height: 40),
+                SizedBox(
+                  width: double.infinity,
+                  height: 80,
+                  child: ElevatedButton(
+                    onPressed: _limpiarYSalir,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.accent,
+                      foregroundColor: AppColors.onAccent,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                    ),
+                    child: const Text(
+                      'Volver',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

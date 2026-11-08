@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
-import '../utils/hash_estable.dart';
+import '../utils/id_ranura.dart';
 import '../utils/vigencia_tratamiento.dart';
 import 'alerta_sin_tomas_service.dart';
 import 'firestore_service.dart';
@@ -247,12 +247,11 @@ class OmitidasService {
   /// un `resumed` junto al tick) escriben el MISMO documento en lugar de crear
   /// dos. Así la protección no depende de evitar el solapamiento, que no se
   /// puede garantizar, sino de que el solapamiento sea inofensivo.
+  ///
+  /// La confirmación usa el mismo id (ver `idDocumentoDeRanura`), de modo que
+  /// una toma confirmada y una olvidada compiten por el mismo documento.
   static String idDocumento(String tratamientoId, DateTime horaProgramada) {
-    final ranura = RanuraToma(
-      tratamientoId: tratamientoId,
-      horaProgramada: horaProgramada,
-    );
-    return hashEstable('omitida|${ranura.clave}').toString();
+    return idDocumentoDeRanura(tratamientoId, horaProgramada);
   }
 
   /// Firma del conjunto de tomas vencidas, para detectar cambios sin releer.

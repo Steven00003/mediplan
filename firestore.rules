@@ -61,10 +61,14 @@ service cloud.firestore {
     }
 
     match /registrosToma/{id} {
-      allow read, update, delete: if esCuidadorDelPaciente(resource.data.pacienteId)
-                                  || esDispositivoVinculado(resource.data.pacienteId);
+      allow read: if esCuidadorDelPaciente(resource.data.pacienteId)
+                  || esDispositivoVinculado(resource.data.pacienteId);
+      // El paciente solo crea su registro. Confirmar y olvidar compiten por el
+      // mismo id determinista; si el documento ya existe, un `set()` es un
+      // update y debe quedar rechazado. El cuidador conserva la corrección.
       allow create: if esCuidadorDelPaciente(request.resource.data.pacienteId)
                     || esDispositivoVinculado(request.resource.data.pacienteId);
+      allow update, delete: if esCuidadorDelPaciente(resource.data.pacienteId);
     }
 
     match /vinculos/{codigo} {
