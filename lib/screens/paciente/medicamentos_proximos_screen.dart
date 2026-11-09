@@ -16,6 +16,7 @@ import '../../theme/app_colors.dart';
 import '../../utils/registros_toma.dart';
 import '../../utils/vigencia_tratamiento.dart';
 import 'alarma_screen.dart';
+import 'diagnostico_alarma_screen.dart';
 
 /// Pantalla principal del Paciente: "Medicamentos próximos".
 ///
@@ -287,6 +288,19 @@ class _MedicamentosProximosScreenState
             title: Text(_pestana == 0 ? 'Tus medicamentos' : 'Historial'),
             automaticallyImplyLeading: false,
             actions: [
+              if (kDebugMode)
+                IconButton(
+                  tooltip: 'Diagnóstico de alarma',
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const DiagnosticoAlarmaScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.bug_report, size: 24),
+                  color: AppColors.onGreen,
+                ),
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: TextButton.icon(

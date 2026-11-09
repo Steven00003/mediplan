@@ -224,8 +224,8 @@ class FirestoreService {
     return doc.id;
   }
 
-  Future<Tratamiento?> getTratamiento(String id) async {
-    final doc = await _tratamientosCollection().doc(id).get();
+  Future<Tratamiento?> getTratamiento(String id, {GetOptions? options}) async {
+    final doc = await _tratamientosCollection().doc(id).get(options);
     if (!doc.exists) return null;
     return Tratamiento.fromMap(doc.id, doc.data()!);
   }

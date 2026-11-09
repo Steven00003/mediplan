@@ -6,6 +6,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../models/tratamiento.dart';
 import '../utils/hash_estable.dart';
+import 'diagnostico_service.dart';
 
 /// Datos que acompañan al toque de una alarma.
 ///
@@ -57,6 +58,14 @@ class NotificacionesService {
   /// alarma: al tocarlo solo se abre la app, no la pantalla de alarma. Se usa
   /// además para cancelar los recordatorios puntuales de un tratamiento.
   static const String _prefijoPayloadRecordatorio = 'recordatorio|';
+
+  /// Payload de la alarma de prueba del diagnóstico. No escribe en Firestore:
+  /// solo abre una pantalla mínima con la hora programada y la hora real.
+  static const String prefijoPayloadPrueba = 'prueba|';
+
+  /// Id fijo de la alarma de prueba. Se cancela antes de programar otra para
+  /// que no queden pruebas acumuladas.
+  static const int idAlarmaPrueba = 0x7FFFFFF0;
 
   /// Canal nativo para datos del sistema que Dart no expone: la zona IANA real,
   /// el nivel de API y el permiso de pantalla completa. `inicializar()` lo usa
@@ -227,6 +236,8 @@ class NotificacionesService {
         'Alarmas de medicamentos',
         description: 'Recordatorios de toma de medicamentos de MediPlan',
         importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
         audioAttributesUsage: AudioAttributesUsage.alarm,
       ),
     );
@@ -319,6 +330,102 @@ class NotificacionesService {
     return android?.requestFullScreenIntentPermission();
   }
 
+  /// Indica si la app puede mostrar notificaciones.
+  Future<bool?> notificacionesHabilitadas() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    try {
+      return await android?.areNotificationsEnabled();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Canal real de alarmas tal como está registrado en el dispositivo.
+  ///
+  /// Es la fuente para diagnosticar si el usuario bajó la importancia del canal
+  /// después de instalarlo (Android no permite que la app la vuelva a subir).
+  Future<AndroidNotificationChannel?> canalDeAlarmas() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    try {
+      final canales = await android?.getNotificationChannels();
+      for (final canal in canales ?? const <AndroidNotificationChannel>[]) {
+        if (canal.id == canalAlarmasId) return canal;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Notificaciones que Android todavía tiene pendientes de disparar.
+  Future<List<PendingNotificationRequest>> solicitudesPendientes() async {
+    try {
+      return await _plugin.pendingNotificationRequests();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Indica si Android permite programar alarmas exactas (API 31+).
+  Future<bool?> puedeProgramarAlarmasExactas() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    try {
+      return await android?.canScheduleExactNotifications();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Abre los Ajustes para permitir alarmas exactas. Devuelve si quedó
+  /// concedido al volver.
+  Future<bool?> solicitarPermisoAlarmasExactas() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    try {
+      return await android?.requestExactAlarmsPermission();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Estado de energía/Doze/No molestar que Dart no expone.
+  Future<Map<String, dynamic>?> estadoEnergia() async {
+    try {
+      return await _canalSistema.invokeMapMethod<String, dynamic>(
+        'estadoEnergia',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> abrirAjustesNotificaciones() async {
+    try {
+      await _canalSistema.invokeMethod<void>('abrirAjustesNotificaciones');
+    } catch (_) {}
+  }
+
+  Future<void> abrirAjustesBateria() async {
+    try {
+      await _canalSistema.invokeMethod<void>('abrirAjustesBateria');
+    } catch (_) {}
+  }
+
+  Future<void> abrirAjustesAlarmasExactas() async {
+    try {
+      await _canalSistema.invokeMethod<void>('abrirAjustesAlarmasExactas');
+    } catch (_) {}
+  }
+
   /// Programa una alarma **puntual** (una sola ejecución) para un horario
   /// HH:mm.
   ///
@@ -361,11 +468,73 @@ class NotificacionesService {
           presentBadge: true,
         ),
       ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
       payload: payload,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
     );
+
+    await _guardarProgramacion(
+      id: id,
+      tipo: 'posponer',
+      tratamientoId: payload.split('|').first,
+      hora: hora,
+      dia: horaSiguiente.weekday,
+      modo: AndroidScheduleMode.alarmClock,
+      proxima: horaSiguiente,
+      semanal: false,
+    );
+  }
+
+  /// Programa la alarma de prueba del diagnóstico: una sola ejecución en
+  /// [en] (60 s por defecto) con el mismo canal, `alarmClock` y
+  /// `fullScreenIntent` que la alarma real. No escribe en Firestore.
+  Future<void> programarAlarmaDePrueba({
+    Duration en = const Duration(seconds: 60),
+  }) async {
+    final cuando = tz.TZDateTime.now(tz.local).add(en);
+    final payload = '$prefijoPayloadPrueba${cuando.millisecondsSinceEpoch}';
+
+    await cancelarAlarmaDePrueba();
+    await _plugin.zonedSchedule(
+      idAlarmaPrueba,
+      'Prueba de alarma',
+      'Alarma de prueba de MediPlan. Debe abrir la pantalla de prueba.',
+      cuando,
+      const NotificationDetails(
+        android: _channel,
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+          presentBadge: true,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
+      payload: payload,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+
+    await _guardarProgramacion(
+      id: idAlarmaPrueba,
+      tipo: 'prueba',
+      modo: AndroidScheduleMode.alarmClock,
+      proxima: cuando,
+      semanal: false,
+    );
+  }
+
+  /// Cancela la alarma de prueba y quita sus metadatos del diagnóstico.
+  Future<void> cancelarAlarmaDePrueba() async {
+    try {
+      await _plugin.cancel(idAlarmaPrueba);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('No se pudo cancelar la alarma de prueba: $e');
+      }
+    } finally {
+      await _olvidarProgramacion(idAlarmaPrueba);
+    }
   }
 
   /// Id reproducible de la alarma de un tratamiento para una combinación
@@ -518,11 +687,13 @@ class NotificacionesService {
     required String nombreMedicamento,
   }) async {
     for (final dia in horario.dias) {
+      final id = idDeAlarma(tratamientoId, horario.hora, dia);
+      final cuando = _proximaInstanciaSemanal(horario.hora, dia);
       await _plugin.zonedSchedule(
-        idDeAlarma(tratamientoId, horario.hora, dia),
+        id,
         'Hora de tu medicina',
         '$nombreMedicamento - Hora de tomarla',
-        _proximaInstanciaSemanal(horario.hora, dia),
+        cuando,
         const NotificationDetails(
           android: _channel,
           iOS: DarwinNotificationDetails(
@@ -531,11 +702,21 @@ class NotificacionesService {
             presentBadge: true,
           ),
         ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        androidScheduleMode: AndroidScheduleMode.alarmClock,
         payload: '$tratamientoId|${horario.hora}',
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      );
+      await _guardarProgramacion(
+        id: id,
+        tipo: 'principal',
+        tratamientoId: tratamientoId,
+        hora: horario.hora,
+        dia: dia,
+        modo: AndroidScheduleMode.alarmClock,
+        proxima: cuando,
+        semanal: true,
       );
     }
   }
@@ -632,11 +813,13 @@ class NotificacionesService {
   }) async {
     for (final dia in horario.dias) {
       final (horaAviso, diaAviso) = desplazarHoraYDia(horario.hora, dia, -5);
+      final id = idDeAvisoPrevio(tratamientoId, horario.hora, dia);
+      final cuando = _proximaInstanciaSemanal(horaAviso, diaAviso);
       await _plugin.zonedSchedule(
-        idDeAvisoPrevio(tratamientoId, horario.hora, dia),
+        id,
         'Tu medicina se acerca',
         '$nombreMedicamento a las ${horario.hora}. Ve preparando tu dosis.',
-        _proximaInstanciaSemanal(horaAviso, diaAviso),
+        cuando,
         const NotificationDetails(
           android: _canalAvisoPrevio,
           iOS: DarwinNotificationDetails(
@@ -649,6 +832,16 @@ class NotificacionesService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      );
+      await _guardarProgramacion(
+        id: id,
+        tipo: 'aviso_previo',
+        tratamientoId: tratamientoId,
+        hora: horaAviso,
+        dia: diaAviso,
+        modo: AndroidScheduleMode.exactAllowWhileIdle,
+        proxima: cuando,
+        semanal: true,
       );
     }
   }
@@ -680,8 +873,9 @@ class NotificacionesService {
     final cuando = despuesDe == null
         ? _proximaInstanciaSemanal(horaTardio, diaTardio)
         : _proximaInstanciaSemanalDesde(horaTardio, diaTardio, despuesDe);
+    final id = idDeRecordatorioTardio(tratamientoId, horaOriginal, dia);
     await _plugin.zonedSchedule(
-      idDeRecordatorioTardio(tratamientoId, horaOriginal, dia),
+      id,
       '¿Ya tomaste tu medicina?',
       '$nombreMedicamento de las $horaOriginal sigue esperando. '
           'Tómala y marca YA.',
@@ -699,6 +893,16 @@ class NotificacionesService {
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+    );
+    await _guardarProgramacion(
+      id: id,
+      tipo: 'recordatorio_tardio',
+      tratamientoId: tratamientoId,
+      hora: horaTardio,
+      dia: diaTardio,
+      modo: AndroidScheduleMode.exactAllowWhileIdle,
+      proxima: cuando,
+      semanal: true,
     );
   }
 
@@ -720,8 +924,9 @@ class NotificacionesService {
       final hora =
           '${horaProgramada.hour.toString().padLeft(2, '0')}:'
           '${horaProgramada.minute.toString().padLeft(2, '0')}';
+      final id = idDeRecordatorioTardioPospuesto(tratamientoId, horaProgramada);
       await _plugin.zonedSchedule(
-        idDeRecordatorioTardioPospuesto(tratamientoId, horaProgramada),
+        id,
         '¿Ya tomaste tu medicina?',
         '$nombreMedicamento de las $hora sigue esperando. '
             'Tómala y marca YA.',
@@ -738,6 +943,16 @@ class NotificacionesService {
         payload: _payloadRecordatorio(tratamientoId),
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      await _guardarProgramacion(
+        id: id,
+        tipo: 'recordatorio_tardio_puntual',
+        tratamientoId: tratamientoId,
+        hora: hora,
+        dia: cuando.weekday,
+        modo: AndroidScheduleMode.exactAllowWhileIdle,
+        proxima: cuando,
+        semanal: false,
       );
     } catch (e) {
       if (kDebugMode) {
@@ -758,9 +973,12 @@ class NotificacionesService {
     required String nombreMedicamento,
   }) async {
     try {
-      await _plugin.cancel(
-        idDeRecordatorioTardioPospuesto(tratamientoId, horaProgramada),
+      final idPospuesto = idDeRecordatorioTardioPospuesto(
+        tratamientoId,
+        horaProgramada,
       );
+      await _plugin.cancel(idPospuesto);
+      await _olvidarProgramacion(idPospuesto);
 
       final hora =
           '${horaProgramada.hour.toString().padLeft(2, '0')}:'
@@ -775,9 +993,13 @@ class NotificacionesService {
       }
       if (horario == null) return;
 
-      await _plugin.cancel(
-        idDeRecordatorioTardio(tratamientoId, horario.hora, dia),
+      final idSemanal = idDeRecordatorioTardio(
+        tratamientoId,
+        horario.hora,
+        dia,
       );
+      await _plugin.cancel(idSemanal);
+      await _olvidarProgramacion(idSemanal);
       await _programarRecordatorioTardioDia(
         tratamientoId: tratamientoId,
         horaOriginal: horario.hora,
@@ -820,6 +1042,36 @@ class NotificacionesService {
   String _payloadRecordatorio(String tratamientoId) =>
       '$_prefijoPayloadRecordatorio$tratamientoId';
 
+  /// Guarda metadatos best-effort para la pantalla de diagnóstico. No debe
+  /// romper la programación real si falla el almacenamiento local.
+  Future<void> _guardarProgramacion({
+    required int id,
+    required String tipo,
+    required AndroidScheduleMode modo,
+    String? tratamientoId,
+    String? hora,
+    int? dia,
+    DateTime? proxima,
+    bool semanal = false,
+  }) async {
+    await DiagnosticoService().guardarProgramacion(
+      ProgramacionAlarma(
+        id: id,
+        tipo: tipo,
+        tratamientoId: tratamientoId,
+        hora: hora,
+        dia: dia,
+        modo: modo.name,
+        proxima: proxima,
+        semanal: semanal,
+      ),
+    );
+  }
+
+  Future<void> _olvidarProgramacion(int id) async {
+    await DiagnosticoService().eliminarProgramacion(id);
+  }
+
   /// Cancela las alarmas y los tres tipos de notificación local de un
   /// tratamiento. Se usa al editarlo o borrarlo.
   Future<void> cancelarNotificacionesDeTratamiento({
@@ -840,6 +1092,7 @@ class NotificacionesService {
     }
     for (final id in ids) {
       await _plugin.cancel(id);
+      await _olvidarProgramacion(id);
     }
 
     // Los recordatorios puntuales de posponer llevan la hora exacta en el id,
@@ -850,6 +1103,7 @@ class NotificacionesService {
       for (final p in pendientes) {
         if (p.payload == payload) {
           await _plugin.cancel(p.id);
+          await _olvidarProgramacion(p.id);
         }
       }
     } catch (e) {
@@ -895,12 +1149,14 @@ class NotificacionesService {
 
     for (final id in ids) {
       await _plugin.cancel(id);
+      await _olvidarProgramacion(id);
     }
   }
 
   /// Cancela todas las alarmas locales (p. ej. al desvincular o editar).
   Future<void> cancelarTodas() async {
     await _plugin.cancelAll();
+    await DiagnosticoService().limpiarProgramaciones();
   }
 
   /// Muestra una notificación local inmediata (para el cuidador).

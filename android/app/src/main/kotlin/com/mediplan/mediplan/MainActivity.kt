@@ -1,11 +1,13 @@
 package com.mediplan.mediplan
 
+import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -25,6 +27,12 @@ class MainActivity : FlutterActivity() {
         const val METODO_SDK_INT = "androidSdkInt"
         const val METODO_ZONA_HORARIA = "timeZoneId"
         const val METODO_PUEDE_PANTALLA_COMPLETA = "canUseFullScreenIntent"
+        const val METODO_ESTADO_ENERGIA = "estadoEnergia"
+        const val METODO_ABRIR_AJUSTES_NOTIFICACIONES =
+            "abrirAjustesNotificaciones"
+        const val METODO_ABRIR_AJUSTES_BATERIA = "abrirAjustesBateria"
+        const val METODO_ABRIR_AJUSTES_ALARMAS_EXACTAS =
+            "abrirAjustesAlarmasExactas"
 
         // Flags de ventana para que la alarma se vea sobre el bloqueo.
         const val CANAL_VENTANA_ALARMA = "com.mediplan.mediplan/ventana_alarma"
@@ -75,6 +83,19 @@ class MainActivity : FlutterActivity() {
                             // El permiso no existe antes de Android 14.
                             result.success(true)
                         }
+                    }
+                    METODO_ESTADO_ENERGIA -> result.success(estadoEnergia())
+                    METODO_ABRIR_AJUSTES_NOTIFICACIONES -> {
+                        abrirAjustesNotificaciones()
+                        result.success(null)
+                    }
+                    METODO_ABRIR_AJUSTES_BATERIA -> {
+                        abrirAjustesBateria()
+                        result.success(null)
+                    }
+                    METODO_ABRIR_AJUSTES_ALARMAS_EXACTAS -> {
+                        abrirAjustesAlarmasExactas()
+                        result.success(null)
                     }
                     else -> result.notImplemented()
                 }
@@ -140,6 +161,94 @@ class MainActivity : FlutterActivity() {
             as NotificationManager
         for (id in ids.distinct()) {
             manager.cancel(id)
+        }
+    }
+
+    /** Estado de energía, Doze y No molestar para el diagnóstico. */
+    private fun estadoEnergia(): Map<String, Any?> {
+        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val notifications = getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        val alarmas = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val sdk = Build.VERSION.SDK_INT
+        return mapOf(
+            "sdkInt" to sdk,
+            "release" to Build.VERSION.RELEASE,
+            "powerSaveMode" to power.isPowerSaveMode,
+            "deviceIdleMode" to
+                if (sdk >= Build.VERSION_CODES.M) power.isDeviceIdleMode else false,
+            "ignoringBatteryOptimizations" to
+                if (sdk >= Build.VERSION_CODES.M) {
+                    power.isIgnoringBatteryOptimizations(packageName)
+                } else {
+                    true
+                },
+            "interruptionFilter" to
+                if (sdk >= Build.VERSION_CODES.M) {
+                    notifications.currentInterruptionFilter
+                } else {
+                    -1
+                },
+            "canScheduleExactAlarms" to
+                if (sdk >= Build.VERSION_CODES.S) {
+                    alarmas.canScheduleExactAlarms()
+                } else {
+                    true
+                },
+        )
+    }
+
+    private fun abrirAjustesNotificaciones() {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            }
+        } else {
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName"),
+            )
+        }
+        abrirAjustes(intent)
+    }
+
+    private fun abrirAjustesBateria() {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        } else {
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName"),
+            )
+        }
+        abrirAjustes(intent)
+    }
+
+    private fun abrirAjustesAlarmasExactas() {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Intent(
+                Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                Uri.parse("package:$packageName"),
+            )
+        } else {
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName"),
+            )
+        }
+        abrirAjustes(intent)
+    }
+
+    private fun abrirAjustes(intent: Intent) {
+        try {
+            startActivity(intent)
+        } catch (_: Exception) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName"),
+                ),
+            )
         }
     }
 

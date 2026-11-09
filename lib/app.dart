@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
@@ -7,11 +8,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
+import 'models/tratamiento.dart';
 import 'providers/app_state.dart';
 import 'screens/seleccion_rol_screen.dart';
 import 'screens/doctor/dashboard_screen.dart';
+import 'screens/paciente/alarma_prueba_screen.dart';
 import 'screens/paciente/alarma_screen.dart';
 import 'screens/paciente/medicamentos_proximos_screen.dart';
+import 'services/diagnostico_service.dart';
 import 'services/firestore_service.dart';
 import 'services/notificaciones_service.dart';
 import 'services/push_service.dart';
@@ -52,6 +56,7 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
   final NotificacionesService _notif = NotificacionesService();
   final FirestoreService _fs = FirestoreService();
   final VentanaAlarmaService _ventanaAlarma = const VentanaAlarmaService();
+  final DiagnosticoService _diagnostico = DiagnosticoService();
   bool _cargando = true;
   String? _error;
   bool _procesandoPayload = false;
@@ -118,7 +123,16 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
     if (_error != null) {
       // La app no llegó a cargar: se descarta el toque y se liberan los flags
       // que MainActivity pudo activar al abrir la notificación.
-      _notif.tomarPayloadPendiente();
+      final descartado = _notif.tomarPayloadPendiente();
+      if (descartado != null) {
+        unawaited(
+          _registrarIntento(
+            descartado.payload,
+            'ignorada',
+            'la app no terminó de inicializar',
+          ),
+        );
+      }
       unawaited(_ventanaAlarma.desactivarFlags());
       return;
     }
@@ -127,10 +141,31 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
     // Si ya hay una alarma en pantalla (o se está abriendo), este toque no
     // debe abrir una segunda. Se descarta el payload.
     if (_procesandoPayload || _appState.alarmaAbierta) {
-      _notif.tomarPayloadPendiente();
+      final descartado = _notif.tomarPayloadPendiente();
+      if (descartado != null) {
+        unawaited(
+          _registrarIntento(
+            descartado.payload,
+            'ignorada',
+            'ya hay una alarma abierta',
+          ),
+        );
+      }
       return;
     }
     unawaited(_procesarPayloadPendiente());
+  }
+
+  Future<void> _registrarIntento(
+    String payload,
+    String resultado,
+    String motivo,
+  ) {
+    return _diagnostico.registrarIntento(
+      payload: payload,
+      resultado: resultado,
+      motivo: motivo,
+    );
   }
 
   /// Libera los flags nativos si el payload no se puede convertir en alarma.
@@ -158,9 +193,48 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
 
     _procesandoPayload = true;
     try {
+      // La alarma de prueba del diagnóstico no escribe en Firestore y no
+      // necesita paciente: solo abre una pantalla mínima.
+      if (payload.startsWith(NotificacionesService.prefijoPayloadPrueba)) {
+        if (!kDebugMode) {
+          await _registrarIntento(
+            payload,
+            'ignorada',
+            'la alarma de prueba está deshabilitada',
+          );
+          await _descartarPayloadInvalido();
+          return;
+        }
+        final programada = _fechaDesdePayloadPrueba(payload);
+        if (programada == null) {
+          await _registrarIntento(
+            payload,
+            'ignorada',
+            'payload de prueba inválido',
+          );
+          await _descartarPayloadInvalido();
+          return;
+        }
+        await _notif.cancelarAlarmaDePrueba();
+        await _registrarIntento(payload, 'abierta', 'pantalla de prueba');
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => AlarmaPruebaScreen(horaProgramada: programada),
+          ),
+        );
+        await _ventanaAlarma.desactivarFlags();
+        return;
+      }
+
       final pacienteId = _appState.pacienteVinculado?.id;
       final usuario = FirebaseAuth.instance.currentUser;
       if (pacienteId == null || usuario == null || !usuario.isAnonymous) {
+        await _registrarIntento(
+          payload,
+          'ignorada',
+          'sin paciente o sin sesión anónima',
+        );
         await _descartarPayloadInvalido();
         return;
       }
@@ -170,6 +244,7 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
         if (kDebugMode) {
           debugPrint('Payload de alarma inválido');
         }
+        await _registrarIntento(payload, 'ignorada', 'payload inválido');
         await _descartarPayloadInvalido();
         return;
       }
@@ -179,11 +254,12 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
         if (kDebugMode) {
           debugPrint('Payload de alarma inválido');
         }
+        await _registrarIntento(payload, 'ignorada', 'payload inválido');
         await _descartarPayloadInvalido();
         return;
       }
 
-      final tratamiento = await _fs.getTratamiento(tratamientoId);
+      final tratamiento = await _leerTratamientoParaAlarma(tratamientoId);
       if (!mounted) return;
 
       // Solo el paciente vinculado puede abrir tratamientos suyos. Un payload
@@ -194,6 +270,11 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
             'Alarma ignorada: el tratamiento no existe o es de otro paciente',
           );
         }
+        await _registrarIntento(
+          payload,
+          'ignorada',
+          'el tratamiento no existe o es de otro paciente',
+        );
         await _descartarPayloadInvalido();
         return;
       }
@@ -208,6 +289,11 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
             'Se cancelan sus notificaciones.',
           );
         }
+        await _registrarIntento(
+          payload,
+          'ignorada',
+          'el tratamiento ya terminó',
+        );
         await _notif.cancelarNotificacionesDeTratamiento(
           tratamientoId: tratamiento.id,
           horarios: tratamiento.horarios,
@@ -217,13 +303,27 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       }
 
       if (_appState.pacienteVinculado?.id != pacienteId) {
+        await _registrarIntento(
+          payload,
+          'ignorada',
+          'el paciente vinculado cambió',
+        );
         await _descartarPayloadInvalido();
         return;
       }
-      if (_appState.alarmaAbierta) return;
+      if (_appState.alarmaAbierta) {
+        await _registrarIntento(
+          payload,
+          'ignorada',
+          'ya hay una alarma abierta',
+        );
+        return;
+      }
 
       _appState.setAlarmaAbierta(true);
       try {
+        await _registrarIntento(payload, 'abierta', 'alarma abierta');
+        if (!mounted) return;
         await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => AlarmaScreen(
@@ -242,10 +342,49 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       if (kDebugMode) {
         debugPrint('No se pudo abrir la alarma desde la notificación: $e');
       }
+      await _registrarIntento(payload, 'error', e.toString());
       await _descartarPayloadInvalido();
     } finally {
       _procesandoPayload = false;
     }
+  }
+
+  /// Lee el tratamiento del servidor con timeout de 3 s y cae a caché.
+  ///
+  /// Así una alarma abierta sin red sigue funcionando con el último dato
+  /// conocido, pero no se queda esperando indefinidamente.
+  Future<Tratamiento?> _leerTratamientoParaAlarma(String tratamientoId) async {
+    try {
+      return await _fs
+          .getTratamiento(
+            tratamientoId,
+            options: const GetOptions(source: Source.server),
+          )
+          .timeout(const Duration(seconds: 3));
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Lectura del tratamiento desde el servidor falló: $e');
+      }
+    }
+    try {
+      return await _fs.getTratamiento(
+        tratamientoId,
+        options: const GetOptions(source: Source.cache),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Lectura del tratamiento desde caché falló: $e');
+      }
+      return null;
+    }
+  }
+
+  DateTime? _fechaDesdePayloadPrueba(String payload) {
+    final partes = payload.split('|');
+    if (partes.length != 2) return null;
+    final ms = int.tryParse(partes[1]);
+    if (ms == null || ms <= 0) return null;
+    return DateTime.fromMillisecondsSinceEpoch(ms);
   }
 
   TimeOfDay? _horaDesdePayload(String valor) {
