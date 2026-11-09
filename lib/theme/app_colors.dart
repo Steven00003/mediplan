@@ -23,6 +23,10 @@ class AppColors {
   /// Verde de acción: CTAs ("Generar código", "Unirme", "YA", FAB).
   static const Color accent = Color(0xFF4CAF50);
 
+  /// Verde oscuro para la tarjeta principal de reingreso. Es lo bastante
+  /// oscuro para que el texto blanco cumpla contraste AA.
+  static const Color primaryStrong = Color(0xFF2E7D32);
+
   /// Texto/íconos oscuros sobre verde claro o sobre tarjeta blanca.
   static const Color onGreen = Color(0xFF1B3A21);
 
