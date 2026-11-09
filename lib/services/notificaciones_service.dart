@@ -6,13 +6,15 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../models/tratamiento.dart';
 import '../utils/hash_estable.dart';
+import '../utils/ventana_alarmas.dart';
+import '../utils/vigencia_tratamiento.dart';
 import 'diagnostico_service.dart';
 
 /// Datos que acompañan al toque de una alarma.
 ///
 /// [idNotificacion] es el id que Android le asignó a la notificación mostrada;
-/// se usa para quitarla de la barra al confirmar o posponer sin cancelar la
-/// alarma semanal que la generó.
+/// se usa para quitarla de la barra al confirmar o posponer sin cancelar las
+/// demás ocurrencias de la ventana de alarmas.
 class PayloadAlarma {
   final String payload;
   final int? idNotificacion;
@@ -312,9 +314,7 @@ class NotificacionesService {
   /// En Android < 14 el permiso no existe y el canal devuelve `true`.
   Future<bool?> puedeUsarPantallaCompleta() async {
     try {
-      return await _canalSistema.invokeMethod<bool>(
-        'canUseFullScreenIntent',
-      );
+      return await _canalSistema.invokeMethod<bool>('canUseFullScreenIntent');
     } catch (_) {
       return null;
     }
@@ -558,19 +558,29 @@ class NotificacionesService {
     return hashEstable('$tratamientoId|$hora|$dia');
   }
 
+  /// Id estable de una alarma puntual de la ventana móvil.
+  ///
+  /// Incluye tratamiento, fecha y hora, así que se puede recalcular al
+  /// confirmar, posponer o cancelar una ocurrencia concreta. El subrango
+  /// negativo está reservado en [VentanaAlarmas] y no choca con los ids de la
+  /// alarma semanal antigua ni con los avisos/tardíos.
+  static int idDeAlarmaPuntual(String tratamientoId, DateTime horaProgramada) {
+    return VentanaAlarmas.idDeOcurrencia(tratamientoId, horaProgramada);
+  }
+
   // -----------------------------------------------------------------------
   // Ids de las notificaciones locales del paciente
   // -----------------------------------------------------------------------
   //
-  // La alarma principal usa ids positivos en todo el rango [1, 0x7FFFFFFF].
-  // Para que no pueda chocar con ella, los tres tipos nuevos usan ids
-  // negativos, que el plugin acepta (rango int32) y Android también admite.
-  // Además cada tipo tiene su propio subrango, así que tampoco chocan entre sí:
+  // La alarma principal semanal antigua usaba ids positivos en todo el rango
+  // [1, 0x7FFFFFFF]. Las alarmas puntuales de la ventana usan un subrango
+  // negativo propio, y los demás tipos también, así que no chocan entre sí:
   //
   //   aviso previo:          [-0x0FFFFFFF, -1]
   //   felicitación:          [-0x1FFFFFFF, -0x10000000]
   //   tardío recurrente:     [-0x27FFFFFF, -0x20000000]
   //   tardío puntual (posponer): [-0x2FFFFFFF, -0x28000000]
+  //   alarma puntual (ventana):  [-0x3FFFFFFF, -0x30000000]
   //
   // El tardío puntual es una variante del tercer tipo (mismo canal), pero con
   // subrango propio para poder cancelarlo sin tumbar el recordatorio semanal.
@@ -663,34 +673,59 @@ class NotificacionesService {
     return (nuevaHora, nuevoDia);
   }
 
-  /// Programa una alarma por cada día de la semana en que aplica [horario].
+  /// Programa la ventana móvil de alarmas puntuales de [horario].
   ///
-  /// Cada día se agenda por separado con
-  /// `DateTimeComponents.dayOfWeekAndTime`, con lo que el plugin **repite esa
-  /// notificación cada semana, y solo en ese día**. Antes se agendaba un único
-  /// `zonedSchedule` sin `matchDateTimeComponents`, que por definición suena
-  /// **una sola vez** (el plugin además la saca de su caché de pendientes al
-  /// dispararse), así que había que re-guardar el tratamiento cada día para
-  /// que la alarma siguiera viva.
+  /// Cada ocurrencia de los próximos [VentanaAlarmas.diasVentana] días se
+  /// agenda por separado con `AndroidScheduleMode.alarmClock` y **sin**
+  /// `matchDateTimeComponents`: es una alarma de reloj de una sola ejecución,
+  /// no una notificación semanal recurrente. Así no depende de que el receptor
+  /// del plugin rearme la siguiente repetición.
   ///
-  /// Se agenda una alarma por día siempre, incluso cuando aplican los 7 (en
-  /// ese caso cabría usar `DateTimeComponents.time` con una sola alarma), para
-  /// que el número de alarmas pendientes sea siempre igual al número de
-  /// entradas de `horarios` y no haya un caso especial que se desincronice.
+  /// Antes de programar se cancelan las alarmas puntuales futuras de este
+  /// horario y las alarmas semanales antiguas de sus días, para que una
+  /// reprogramación no deje dos alarmas para la misma toma.
   ///
-  /// El [payload] mantiene el formato `tratamientoId|hora` que ya usa el resto
-  /// de la app; no incluye el día porque quien lo recibe no lo necesita para
-  /// resolver la toma.
-  Future<void> programarAlarmasDeHorario({
+  /// El payload mantiene el formato `tratamientoId|hora` que ya usa el resto de
+  /// la app. El id de la ocurrencia sí incluye la fecha.
+  Future<int> programarAlarmasDeHorario({
     required String tratamientoId,
     required HorarioDia horario,
     required String nombreMedicamento,
+    DateTime? fechaInicio,
+    int? duracionDias,
+    DateTime? ahora,
   }) async {
+    final referencia = ahora ?? DateTime.now();
+
+    // Limpia la alarma semanal antigua de este horario (ids positivos) y las
+    // alarmas puntuales futuras que ya estuvieran programadas.
     for (final dia in horario.dias) {
-      final id = idDeAlarma(tratamientoId, horario.hora, dia);
-      final cuando = _proximaInstanciaSemanal(horario.hora, dia);
+      final idViejo = idDeAlarma(tratamientoId, horario.hora, dia);
+      await _plugin.cancel(idViejo);
+      await _olvidarProgramacion(idViejo);
+    }
+    final futuras = VentanaAlarmas.ocurrencias(
+      tratamientoId: tratamientoId,
+      horarios: [horario],
+      ahora: referencia,
+      respetarVigencia: false,
+    );
+    for (final ocurrencia in futuras) {
+      await _plugin.cancel(ocurrencia.id);
+      await _olvidarProgramacion(ocurrencia.id);
+    }
+
+    final ocurrencias = VentanaAlarmas.ocurrencias(
+      tratamientoId: tratamientoId,
+      horarios: [horario],
+      ahora: referencia,
+      fechaInicio: fechaInicio,
+      duracionDias: duracionDias,
+    );
+    for (final ocurrencia in ocurrencias) {
+      final cuando = tz.TZDateTime.from(ocurrencia.horaProgramada, tz.local);
       await _plugin.zonedSchedule(
-        id,
+        ocurrencia.id,
         'Hora de tu medicina',
         '$nombreMedicamento - Hora de tomarla',
         cuando,
@@ -703,22 +738,22 @@ class NotificacionesService {
           ),
         ),
         androidScheduleMode: AndroidScheduleMode.alarmClock,
-        payload: '$tratamientoId|${horario.hora}',
+        payload: '$tratamientoId|${ocurrencia.hora}',
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
       );
       await _guardarProgramacion(
-        id: id,
-        tipo: 'principal',
+        id: ocurrencia.id,
+        tipo: 'principal_puntual',
         tratamientoId: tratamientoId,
-        hora: horario.hora,
-        dia: dia,
+        hora: ocurrencia.hora,
+        dia: ocurrencia.horaProgramada.weekday,
         modo: AndroidScheduleMode.alarmClock,
-        proxima: cuando,
-        semanal: true,
+        proxima: ocurrencia.horaProgramada,
+        semanal: false,
       );
     }
+    return ocurrencias.length;
   }
 
   /// Próxima fecha local en que ese día de la semana cae a esa hora.
@@ -776,19 +811,42 @@ class NotificacionesService {
   }
 
   /// Programa los tres tipos de notificación local de un horario:
-  /// alarma principal, aviso previo y recordatorio tardío.
+  /// alarma principal (ventana puntual), aviso previo y recordatorio tardío.
   ///
   /// La felicitación no se programa: se muestra justo al confirmar.
   Future<void> programarNotificacionesDeHorario({
     required String tratamientoId,
     required HorarioDia horario,
     required String nombreMedicamento,
+    DateTime? fechaInicio,
+    int? duracionDias,
+    DateTime? ahora,
   }) async {
     await programarAlarmasDeHorario(
       tratamientoId: tratamientoId,
       horario: horario,
       nombreMedicamento: nombreMedicamento,
+      fechaInicio: fechaInicio,
+      duracionDias: duracionDias,
+      ahora: ahora,
     );
+    await programarAvisosYRecordatoriosDeHorario(
+      tratamientoId: tratamientoId,
+      horario: horario,
+      nombreMedicamento: nombreMedicamento,
+    );
+  }
+
+  /// Programa solo el aviso previo y el recordatorio tardío de [horario].
+  ///
+  /// Se separa de [programarNotificacionesDeHorario] para que el editor de
+  /// tratamientos pueda rearmar la ventana de alarmas puntuales de una sola vez
+  /// con [rearmarAlarmasDeTratamientos] sin duplicar la alarma principal.
+  Future<void> programarAvisosYRecordatoriosDeHorario({
+    required String tratamientoId,
+    required HorarioDia horario,
+    required String nombreMedicamento,
+  }) async {
     await programarAvisoPrevioDeHorario(
       tratamientoId: tratamientoId,
       horario: horario,
@@ -799,6 +857,51 @@ class NotificacionesService {
       horario: horario,
       nombreMedicamento: nombreMedicamento,
     );
+  }
+
+  /// Rearma la ventana móvil de alarmas puntuales de [tratamientos].
+  ///
+  /// Cancela primero las alarmas puntuales y semanales antiguas de cada
+  /// tratamiento y después agenda las ocurrencias de los próximos 7 días que
+  /// caigan dentro de su vigencia. Devuelve cuántas alarmas puntuales quedaron
+  /// programadas y registra el rearme para la pantalla de diagnóstico.
+  ///
+  /// Los avisos previos y recordatorios tardíos no se tocan aquí: siguen siendo
+  /// notificaciones semanales independientes.
+  Future<int> rearmarAlarmasDeTratamientos({
+    required List<Tratamiento> tratamientos,
+    DateTime? ahora,
+  }) async {
+    final referencia = ahora ?? DateTime.now();
+    var cantidad = 0;
+
+    for (final tratamiento in tratamientos) {
+      await cancelarAlarmasDeTratamiento(
+        tratamientoId: tratamiento.id,
+        horarios: tratamiento.horarios,
+        ahora: referencia,
+        incluirPosponer: false,
+      );
+      if (!VigenciaTratamiento.estaVigente(tratamiento, referencia)) {
+        continue;
+      }
+      for (final horario in tratamiento.horarios) {
+        cantidad += await programarAlarmasDeHorario(
+          tratamientoId: tratamiento.id,
+          horario: horario,
+          nombreMedicamento: tratamiento.nombreMedicamento,
+          fechaInicio: tratamiento.fechaInicio,
+          duracionDias: tratamiento.duracionDias,
+          ahora: referencia,
+        );
+      }
+    }
+
+    await DiagnosticoService().registrarRearme(
+      cantidad: cantidad,
+      tratamientos: tratamientos.length,
+    );
+    return cantidad;
   }
 
   /// Aviso suave 5 minutos antes de cada toma.
@@ -1072,15 +1175,59 @@ class NotificacionesService {
     await DiagnosticoService().eliminarProgramacion(id);
   }
 
+  /// Cancela la alarma puntual de una ocurrencia concreta y la notificación
+  /// que la abrió, sin tocar las demás ocurrencias de la ventana.
+  ///
+  /// También limpia la alarma semanal antigua del mismo horario/día y los ids
+  /// de versiones anteriores, para que una instalación que venía de la versión
+  /// recurrente no deje una segunda alarma sonando.
+  Future<void> cancelarAlarmaDeOcurrencia({
+    required String tratamientoId,
+    required DateTime horaProgramada,
+    required List<HorarioDia> horarios,
+    int? idNotificacion,
+  }) async {
+    final ids = <int>{};
+    if (idNotificacion != null && idNotificacion != 0) {
+      // Si la alarma se abrió desde la notificación, ese id identifica la
+      // ocurrencia exacta aunque el toque ocurra después de medianoche.
+      ids.add(idNotificacion);
+    } else {
+      // Abierta desde la pantalla del paciente: la ocurrencia es la de hoy.
+      ids.add(idDeAlarmaPuntual(tratamientoId, horaProgramada));
+
+      final hora =
+          '${horaProgramada.hour.toString().padLeft(2, '0')}:'
+          '${horaProgramada.minute.toString().padLeft(2, '0')}';
+      final dia = horaProgramada.weekday;
+      for (var i = 0; i < horarios.length; i++) {
+        final horario = horarios[i];
+        if (horario.hora != hora) continue;
+        if (horario.dias.contains(dia)) {
+          ids.add(idDeAlarma(tratamientoId, horario.hora, dia));
+        }
+        final idAntiguo = (tratamientoId.hashCode ^ i) & 0x7FFFFFFF;
+        if (idAntiguo >= 1) ids.add(idAntiguo);
+      }
+    }
+
+    for (final id in ids) {
+      await _plugin.cancel(id);
+      await _olvidarProgramacion(id);
+    }
+  }
+
   /// Cancela las alarmas y los tres tipos de notificación local de un
   /// tratamiento. Se usa al editarlo o borrarlo.
   Future<void> cancelarNotificacionesDeTratamiento({
     required String tratamientoId,
     required List<HorarioDia> horarios,
+    DateTime? ahora,
   }) async {
     await cancelarAlarmasDeTratamiento(
       tratamientoId: tratamientoId,
       horarios: horarios,
+      ahora: ahora,
     );
 
     final ids = <int>{};
@@ -1127,14 +1274,28 @@ class NotificacionesService {
   /// 0x7FFFFFFF`): en los dispositivos que ya tenían instalada esa versión esas
   /// alarmas siguen vivas bajo ids que este código ya no volvería a generar.
   /// Se cubren:
-  ///  - una alarma por (hora, día) de cada horario, y
+  ///  - las alarmas puntuales futuras de la ventana (ids negativos),
+  ///  - una alarma semanal antigua por (hora, día) de cada horario, y
   ///  - la alarma de posponer ("Recordar"), que usa un id propio por
   ///    tratamiento: `(id.hashCode & 0x7FFFFFFF) + 1`.
   Future<void> cancelarAlarmasDeTratamiento({
     required String tratamientoId,
     required List<HorarioDia> horarios,
+    DateTime? ahora,
+    bool incluirPosponer = true,
   }) async {
     final ids = <int>{};
+
+    // Las ocurrencias puntuales se cancelan sin mirar la vigencia: los
+    // parámetros del tratamiento pudieron cambiar desde que se programaron.
+    ids.addAll(
+      VentanaAlarmas.idsDeOcurrencias(
+        tratamientoId: tratamientoId,
+        horarios: horarios,
+        ahora: ahora ?? DateTime.now(),
+        respetarVigencia: false,
+      ),
+    );
 
     for (final h in horarios) {
       for (final dia in h.dias) {
@@ -1145,7 +1306,11 @@ class NotificacionesService {
       final idAntiguo = (tratamientoId.hashCode ^ i) & 0x7FFFFFFF;
       if (idAntiguo >= 1) ids.add(idAntiguo);
     }
-    ids.add((tratamientoId.hashCode & 0x7FFFFFFF) + 1);
+    // El rearme periódico no debe cancelar una alarma de "Recordar" pendiente:
+    // es una ocurrencia futura que el paciente pidió conservar.
+    if (incluirPosponer) {
+      ids.add((tratamientoId.hashCode & 0x7FFFFFFF) + 1);
+    }
 
     for (final id in ids) {
       await _plugin.cancel(id);

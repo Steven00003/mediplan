@@ -355,38 +355,16 @@ class _AlarmaScreenState extends State<AlarmaScreen>
 
   /// Quita de la barra la notificación que abrió la alarma.
   ///
-  /// Se cancelan también los ids reproducibles del mismo horario porque, si la
-  /// alarma se abrió desde la pantalla del paciente, no hay un
-  /// `idNotificacion` de respuesta. Cancelar el id de la notificación no borra
-  /// la alarma semanal: eso se hace con `NotificacionesService.cancelar...`.
+  /// Cancela solo la ocurrencia puntual que se está atendiendo (y la alarma
+  /// semanal antigua del mismo horario/día, si quedara de una instalación
+  /// previa). Las demás ocurrencias de la ventana siguen programadas.
   Future<void> _cancelarNotificacionAlarma() async {
-    final ids = <int>{};
-    if (widget.idNotificacion != null && widget.idNotificacion! > 0) {
-      ids.add(widget.idNotificacion!);
-    }
-
-    final horarios = widget.tratamiento.horarios;
-    for (var i = 0; i < horarios.length; i++) {
-      final horario = horarios[i];
-      if (horario.hora != _horaTxt) continue;
-      for (final dia in horario.dias) {
-        ids.add(
-          NotificacionesService.idDeAlarma(
-            widget.tratamiento.id,
-            horario.hora,
-            dia,
-          ),
-        );
-      }
-      // Ids de versiones anteriores, por si la notificación ya estaba viva.
-      final idAntiguo = (widget.tratamiento.id.hashCode ^ i) & 0x7FFFFFFF;
-      if (idAntiguo >= 1) ids.add(idAntiguo);
-    }
-
-    // "Recordar" usa un id fijo por tratamiento.
-    ids.add((widget.tratamiento.id.hashCode & 0x7FFFFFFF) + 1);
-
-    await _ventana.cancelarNotificaciones(ids);
+    await _notif.cancelarAlarmaDeOcurrencia(
+      tratamientoId: widget.tratamiento.id,
+      horaProgramada: _horaProgramada,
+      horarios: widget.tratamiento.horarios,
+      idNotificacion: widget.idNotificacion,
+    );
   }
 
   Future<void> _desactivarFlagsVentana() async {

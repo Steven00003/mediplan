@@ -30,6 +30,7 @@ class _DiagnosticoAlarmaScreenState extends State<DiagnosticoAlarmaScreen> {
   List<PendingNotificationRequest> _pendientes = const [];
   List<ProgramacionAlarma> _programaciones = const [];
   List<IntentoAperturaAlarma> _intentos = const [];
+  RearmeAlarmas? _ultimoRearme;
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _DiagnosticoAlarmaScreenState extends State<DiagnosticoAlarmaScreen> {
     final pendientes = await _notif.solicitudesPendientes();
     final programaciones = await _diag.obtenerProgramaciones();
     final intentos = await _diag.obtenerIntentos();
+    final ultimoRearme = await _diag.obtenerUltimoRearme();
     if (!mounted) return;
     setState(() {
       _notificacionesHabilitadas = notificaciones;
@@ -55,6 +57,7 @@ class _DiagnosticoAlarmaScreenState extends State<DiagnosticoAlarmaScreen> {
       _pendientes = pendientes;
       _programaciones = programaciones;
       _intentos = intentos;
+      _ultimoRearme = ultimoRearme;
       _cargando = false;
     });
   }
@@ -166,6 +169,21 @@ class _DiagnosticoAlarmaScreenState extends State<DiagnosticoAlarmaScreen> {
                       '(API ${_energia?['sdkInt'] ?? '?'})',
                 ),
                 const SizedBox(height: 20),
+                _seccion('Rearme de la ventana'),
+                _fila(
+                  'Último rearme',
+                  _ultimoRearme == null
+                      ? 'Todavía no'
+                      : _fecha(_ultimoRearme!.fecha),
+                ),
+                _fila(
+                  'Alarmas puntuales',
+                  _ultimoRearme == null
+                      ? 'Sin datos'
+                      : '${_ultimoRearme!.cantidad} en '
+                            '${_ultimoRearme!.tratamientos} tratamientos',
+                ),
+                const SizedBox(height: 20),
                 _seccion('Alarmas programadas (${_pendientes.length})'),
                 if (_pendientes.isEmpty)
                   const Padding(
@@ -271,7 +289,7 @@ class _DiagnosticoAlarmaScreenState extends State<DiagnosticoAlarmaScreen> {
     final meta = _buscarProgramacion(pendiente.id);
     final proxima = meta?.proximaLocal(DateTime.now());
     final modo = meta?.modo ?? _modoInferido(pendiente);
-    final tipo = meta?.tipo ?? 'sin metadatos';
+    final tipo = _tipoLegible(meta?.tipo ?? 'sin metadatos');
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
@@ -350,6 +368,17 @@ class _DiagnosticoAlarmaScreenState extends State<DiagnosticoAlarmaScreen> {
       if (p.id == id) return p;
     }
     return null;
+  }
+
+  String _tipoLegible(String tipo) {
+    switch (tipo) {
+      case 'principal_puntual':
+        return 'principal (ventana)';
+      case 'principal':
+        return 'principal (semanal antigua)';
+      default:
+        return tipo;
+    }
   }
 
   String _modoInferido(PendingNotificationRequest pendiente) {

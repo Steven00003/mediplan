@@ -78,6 +78,35 @@ class ProgramacionAlarma {
   }
 }
 
+/// Último rearme de la ventana móvil de alarmas puntuales.
+class RearmeAlarmas {
+  final DateTime fecha;
+  final int cantidad;
+  final int tratamientos;
+
+  const RearmeAlarmas({
+    required this.fecha,
+    required this.cantidad,
+    required this.tratamientos,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'fecha': fecha.millisecondsSinceEpoch,
+    'cantidad': cantidad,
+    'tratamientos': tratamientos,
+  };
+
+  factory RearmeAlarmas.fromJson(Map<String, dynamic> json) {
+    return RearmeAlarmas(
+      fecha: DateTime.fromMillisecondsSinceEpoch(
+        (json['fecha'] as num?)?.toInt() ?? 0,
+      ),
+      cantidad: (json['cantidad'] as num?)?.toInt() ?? 0,
+      tratamientos: (json['tratamientos'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 /// Un intento de abrir la app desde una notificación de alarma.
 class IntentoAperturaAlarma {
   final DateTime fecha;
@@ -119,6 +148,7 @@ class IntentoAperturaAlarma {
 class DiagnosticoService {
   static const _kIntentos = 'diagnostico_intentos_alarma_v1';
   static const _kProgramaciones = 'diagnostico_programaciones_alarma_v1';
+  static const _kUltimoRearme = 'diagnostico_ultimo_rearme_alarma_v1';
   static const int maxIntentos = 20;
 
   Future<void> registrarIntento({
@@ -227,10 +257,42 @@ class DiagnosticoService {
     } catch (_) {}
   }
 
+  /// Registra el último rearme de la ventana móvil.
+  Future<void> registrarRearme({
+    required int cantidad,
+    required int tratamientos,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rearme = RearmeAlarmas(
+        fecha: DateTime.now(),
+        cantidad: cantidad,
+        tratamientos: tratamientos,
+      );
+      await prefs.setString(_kUltimoRearme, jsonEncode(rearme.toJson()));
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('No se pudo guardar el rearme de alarmas: $e');
+      }
+    }
+  }
+
+  Future<RearmeAlarmas?> obtenerUltimoRearme() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kUltimoRearme);
+      if (raw == null || raw.isEmpty) return null;
+      return RearmeAlarmas.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> limpiarProgramaciones() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_kProgramaciones);
+      await prefs.remove(_kUltimoRearme);
     } catch (_) {}
   }
 

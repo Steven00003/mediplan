@@ -316,12 +316,21 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
       // ni tardíos. Las del estado anterior ya se cancelaron arriba.
       if (VigenciaTratamiento.estaVigente(tratamiento, DateTime.now())) {
         for (final h in tratamiento.horarios) {
-          await _notif.programarNotificacionesDeHorario(
+          await _notif.programarAvisosYRecordatoriosDeHorario(
             tratamientoId: id,
             horario: h,
             nombreMedicamento: nombre,
           );
         }
+        // La alarma principal se rearma como ventana de ocurrencias puntuales.
+        // Para un tratamiento nuevo, `crearTratamiento` devuelve el id y el
+        // objeto local todavía lo tiene vacío.
+        final tratamientoConId = tratamiento.id == id
+            ? tratamiento
+            : Tratamiento.fromMap(id, tratamiento.toMap());
+        await _notif.rearmarAlarmasDeTratamientos(
+          tratamientos: [tratamientoConId],
+        );
       }
 
       if (mounted) Navigator.of(context).pop();

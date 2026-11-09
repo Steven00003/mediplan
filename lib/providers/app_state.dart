@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../models/paciente.dart';
+import '../models/tratamiento.dart';
 import '../services/firestore_service.dart';
 import '../services/local_store.dart';
 import '../services/omitidas_service.dart';
@@ -33,6 +34,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   static const Duration _intervaloOmitidas = Duration(seconds: 60);
 
   Timer? _timerOmitidas;
+
+  /// Evita rearmes solapados si el tick de 60 s coincide con una vuelta del
+  /// fondo, un reingreso o una reprogramación completa.
+  bool _rearmandoAlarmas = false;
 
   /// `true` mientras haya una pantalla de alarma abierta.
   ///
@@ -113,6 +118,52 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       // Reconciliar es una mejora best-effort: un fallo puntual (sin red, sin
       // índice compuesto aún) no debe sacar al paciente de la app. El siguiente
       // tick reintenta.
+    }
+    // La ventana de alarmas puntuales se rearma en cada tick (60 s), al abrir
+    // la app y al volver del fondo. Es idempotente y no toca avisos/tardíos.
+    await _rearmarVentanaAlarmas();
+  }
+
+  /// Rearma la ventana móvil de alarmas puntuales del paciente vinculado.
+  ///
+  /// Lee los tratamientos del servidor (con caída a caché) para detectar
+  /// cambios hechos por el cuidador mientras la app estaba abierta. Si ya hay
+  /// un rearme en curso, se ignora este para no cancelar y reprogramar dos
+  /// veces a la vez.
+  Future<void> _rearmarVentanaAlarmas() async {
+    final pacienteId = _pacienteVinculado?.id;
+    if (pacienteId == null || _alarmaAbierta || _rearmandoAlarmas) return;
+
+    _rearmandoAlarmas = true;
+    try {
+      final tratamientos = await _leerTratamientosParaRearmar(pacienteId);
+      await _notif.rearmarAlarmasDeTratamientos(tratamientos: tratamientos);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('No se pudo rearmar la ventana de alarmas: $e');
+      }
+    } finally {
+      _rearmandoAlarmas = false;
+    }
+  }
+
+  Future<List<Tratamiento>> _leerTratamientosParaRearmar(
+    String pacienteId,
+  ) async {
+    try {
+      return await _fs
+          .getTratamientosDePaciente(
+            pacienteId,
+            options: const GetOptions(source: Source.server),
+          )
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Sin red o servidor lento: se usa la caché local para no dejar la
+      // ventana sin rearmar. Si tampoco hay caché, el error sube y se registra.
+      return await _fs.getTratamientosDePaciente(
+        pacienteId,
+        options: const GetOptions(source: Source.cache),
+      );
     }
   }
 
@@ -338,6 +389,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       // Se reprograman todas las alarmas después de validar; si falla la
       // consulta de tratamientos, el reingreso no se pierde.
       await _programarNotificacionesDePaciente(paciente.id);
+      unawaited(_reconciliarOmitidas(forzar: true));
       return ResultadoReingresoPaciente.exito;
     } on FirebaseException catch (e) {
       if (e.code == 'permission-denied') {
@@ -371,7 +423,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _pacienteVinculado = paciente;
     _omitidas.invalidar();
     _arrancarTimerOmitidas();
-    unawaited(_reconciliarOmitidas(forzar: true));
     _escucharPacienteDoc(paciente.id);
     notifyListeners();
   }
@@ -383,6 +434,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Es best-effort: si la lectura de tratamientos falla, no se cancelan las
   /// alarmas existentes y el reingreso sigue siendo válido.
   Future<void> _programarNotificacionesDePaciente(String pacienteId) async {
+    _rearmandoAlarmas = true;
     try {
       final tratamientos = await _fs.getTratamientosDePaciente(
         pacienteId,
@@ -395,24 +447,26 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         }
         for (final horario in tratamiento.horarios) {
           try {
-            await _notif.programarNotificacionesDeHorario(
+            await _notif.programarAvisosYRecordatoriosDeHorario(
               tratamientoId: tratamiento.id,
               horario: horario,
               nombreMedicamento: tratamiento.nombreMedicamento,
             );
           } catch (e) {
             if (kDebugMode) {
-              debugPrint(
-                'No se pudieron programar las notificaciones: $e',
-              );
+              debugPrint('No se pudieron programar las notificaciones: $e');
             }
           }
         }
       }
+      // La alarma principal se rearma como ventana de ocurrencias puntuales.
+      await _notif.rearmarAlarmasDeTratamientos(tratamientos: tratamientos);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('No se pudieron reprogramar las notificaciones: $e');
       }
+    } finally {
+      _rearmandoAlarmas = false;
     }
   }
 
