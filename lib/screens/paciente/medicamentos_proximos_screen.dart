@@ -13,8 +13,13 @@ import '../../services/local_store.dart';
 import '../../services/notificaciones_service.dart';
 import '../../services/omitidas_service.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_page_route.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/errores_amigables.dart';
 import '../../utils/registros_toma.dart';
 import '../../utils/vigencia_tratamiento.dart';
+import '../../widgets/dialogo_accion_delicada.dart';
+import '../../widgets/estados.dart';
 import 'alarma_screen.dart';
 import 'diagnostico_alarma_screen.dart';
 
@@ -44,6 +49,9 @@ class _MedicamentosProximosScreenState
 
   /// 0 = "Horario" (pestaña inicial, la función principal), 1 = "Historial".
   int _pestana = 0;
+
+  /// Fuerza una nueva suscripción cuando el usuario pulsa "Reintentar".
+  int _reintentoHorario = 0;
 
   @override
   void initState() {
@@ -293,28 +301,30 @@ class _MedicamentosProximosScreenState
                   tooltip: 'Diagnóstico de alarma',
                   onPressed: () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(
+                      AppPageRoute(
                         builder: (_) => const DiagnosticoAlarmaScreen(),
                       ),
                     );
                   },
-                  icon: const Icon(Icons.bug_report, size: 24),
+                  icon: const Icon(Icons.bug_report, size: AppSizes.icon),
                   color: AppColors.onGreen,
                 ),
               Padding(
-                padding: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.only(right: AppSpacing.xs),
                 child: TextButton.icon(
                   onPressed: _mostrarDialogoSalida,
-                  icon: const Icon(Icons.logout, size: 22),
+                  icon: const Icon(Icons.logout, size: AppSizes.iconSmall),
                   label: const Text('Salir'),
                   style: TextButton.styleFrom(
                     foregroundColor: AppColors.onGreen,
-                    minimumSize: const Size(88, 48),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    textStyle: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                    minimumSize: const Size(
+                      AppSpacing.xxl * 2,
+                      AppSizes.minTouch,
                     ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                    ),
+                    textStyle: AppType.button,
                   ),
                 ),
               ),
@@ -344,12 +354,6 @@ class _MedicamentosProximosScreenState
   Widget get _barraDePestanas => BottomNavigationBar(
     currentIndex: _pestana,
     onTap: (i) => setState(() => _pestana = i),
-    type: BottomNavigationBarType.fixed,
-    selectedItemColor: AppColors.accent,
-    unselectedItemColor: AppColors.textSecondary,
-    iconSize: 32,
-    selectedFontSize: 17,
-    unselectedFontSize: 15,
     items: const [
       BottomNavigationBarItem(icon: Icon(Icons.schedule), label: 'Horario'),
       BottomNavigationBarItem(icon: Icon(Icons.medication), label: 'Historial'),
@@ -361,44 +365,65 @@ class _MedicamentosProximosScreenState
   /// Es la vista que ya existía, sin cambios en su lógica.
   Widget _listaHorario(String pacienteId) {
     return StreamBuilder<List<Tratamiento>>(
+      key: ValueKey('horario-$_reintentoHorario'),
       stream: _fs.streamTratamientosDePaciente(pacienteId),
       builder: (context, snap) {
         if (snap.hasError) {
-          return const Center(
-            child: Text(
-              'Error al cargar',
-              style: TextStyle(color: AppColors.textSecondary),
+          return EstadoError(
+            mensaje: mensajeErrorAmigable(
+              snap.error!,
+              contexto: 'Error cargando horario del paciente',
             ),
+            onReintentar: () => setState(() {
+              _reintentoHorario++;
+              _registrosHoy = _fs.streamRegistrosDePacienteHoy(pacienteId);
+            }),
           );
         }
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EstadoCargando(texto: 'Cargando horario...');
         }
         final ahora = DateTime.now();
         final todos = snap.data ?? const <Tratamiento>[];
         // Solo se listan los medicamentos que hoy tienen algún horario
         // aplicable. Si hoy no toca, no hay nada que tomar.
         final tratamientos = todos
-            .where(
-              (t) => OmitidasService.ranurasDelDia([t], ahora).isNotEmpty,
-            )
+            .where((t) => OmitidasService.ranurasDelDia([t], ahora).isNotEmpty)
             .toList();
         if (tratamientos.isEmpty) {
-          return _Empty(hayTratamientos: todos.isNotEmpty);
+          return EstadoVacio(
+            icono: Icons.medication,
+            titulo: 'No tienes medicamentos programados por ahora',
+            mensaje: todos.isEmpty
+                ? 'Tu cuidador los va a agregar.'
+                : 'Hoy no hay tomas programadas.',
+          );
         }
         return StreamBuilder<List<RegistroToma>>(
           stream: _registrosHoy,
           builder: (context, regSnap) {
+            if (regSnap.hasError) {
+              return EstadoError(
+                mensaje: mensajeErrorAmigable(
+                  regSnap.error!,
+                  contexto: 'Error cargando tomas de hoy',
+                ),
+                onReintentar: () => setState(() {
+                  _reintentoHorario++;
+                  _registrosHoy = _fs.streamRegistrosDePacienteHoy(pacienteId);
+                }),
+              );
+            }
             if (regSnap.connectionState == ConnectionState.waiting &&
                 !regSnap.hasData) {
-              return const Center(child: CircularProgressIndicator());
+              return const EstadoCargando(texto: 'Cargando tomas...');
             }
             // Si la lectura de hoy falla, se sigue mostrando el horario. La
             // pantalla de alarma vuelve a comprobar la ranura antes de ofrecer
             // "YA", así que no se puede confirmar dos veces por esto.
             final registros = regSnap.data ?? const <RegistroToma>[];
             return ListView.builder(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.sm),
               itemCount: tratamientos.length,
               itemBuilder: (context, i) {
                 final t = tratamientos[i];
@@ -423,39 +448,17 @@ class _MedicamentosProximosScreenState
   /// no se modifica; solo el cuidador puede desvincular.
   Future<void> _mostrarDialogoSalida() async {
     final appState = context.read<AppState>();
-    final salir = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('¿Seguro que quieres salir?'),
-        content: const Text('Podrás volver a entrar sin escribir el código.'),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.error,
-              visualDensity: VisualDensity.compact,
-            ),
-            child: const Text('Salir'),
-          ),
-          ElevatedButton(
-            autofocus: true,
-            onPressed: () => Navigator.of(ctx).pop(false),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accent,
-              foregroundColor: AppColors.onAccent,
-              minimumSize: const Size(140, 48),
-            ),
-            child: const Text('Cancelar'),
-          ),
-        ],
-      ),
+    final salir = await mostrarDialogoAccionDelicada(
+      context,
+      titulo: '¿Seguro que quieres salir?',
+      mensaje: 'Podrás volver a entrar sin escribir el código.',
+      textoAccion: 'Salir',
+      icono: Icons.logout,
     );
-    if (salir == true && mounted) {
+    if (salir && mounted) {
       await appState.salirDelModoPaciente();
     }
   }
-
 }
 
 class _CardMedicamento extends StatelessWidget {
@@ -488,8 +491,7 @@ class _CardMedicamento extends StatelessWidget {
             tratamiento.id,
             slot.horaProgramada,
           )];
-      if (!(registro?.estado.esTerminal ?? false) &&
-          proximaPendiente == null) {
+      if (!(registro?.estado.esTerminal ?? false) && proximaPendiente == null) {
         proximaPendiente = TimeOfDay(
           hour: slot.horaProgramada.hour,
           minute: slot.horaProgramada.minute,
@@ -510,66 +512,62 @@ class _CardMedicamento extends StatelessWidget {
             : null);
 
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      margin: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppRadii.card),
         onTap: proximaPendiente == null
             ? null
             : () => onAbrir(proximaPendiente!),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.sm),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CircleAvatar(
-                radius: 30,
+                radius: AppSizes.avatar / 2,
                 backgroundColor: AppColors.primary,
                 foregroundImage: tieneFoto ? MemoryImage(bytesFoto) : null,
                 child: tieneFoto
                     ? null
                     : const Icon(
                         Icons.medication,
-                        size: 32,
-                        color: AppColors.accent,
+                        size: AppSizes.iconLarge,
+                        color: AppColors.primaryStrong,
                       ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       tratamiento.nombreMedicamento,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: AppType.title.copyWith(color: AppColors.onGreen),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: AppSpacing.xs),
                     ...filas,
                     if (textoVigencia != null) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppSpacing.xs),
                       Text(
                         textoVigencia,
-                        style: const TextStyle(
-                          fontSize: 15,
+                        style: AppType.label.copyWith(
                           color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w400,
                         ),
                       ),
                     ],
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSpacing.xs),
               Icon(
                 proximaPendiente == null
                     ? Icons.check_circle
                     : Icons.chevron_right,
                 color: proximaPendiente == null
-                    ? AppColors.accent
+                    ? AppColors.primaryStrong
                     : AppColors.textSecondary,
-                size: 32,
+                size: AppSizes.iconLarge,
               ),
             ],
           ),
@@ -596,35 +594,30 @@ class _FilaDosis extends StatelessWidget {
         Icons.timer_outlined,
       ),
       EstadoToma.olvidada => ('No se tomó', AppColors.error, Icons.cancel),
-      EstadoToma.pospuesta => (
-        'Recordada',
-        AppColors.warning,
-        Icons.schedule,
-      ),
+      EstadoToma.pospuesta => ('Recordada', AppColors.warning, Icons.schedule),
       _ => ('Pendiente', AppColors.textSecondary, Icons.schedule),
     };
     final h = slot.horaProgramada.hour.toString().padLeft(2, '0');
     final m = slot.horaProgramada.minute.toString().padLeft(2, '0');
 
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.only(top: AppSpacing.xs),
       child: Row(
         children: [
-          Icon(icono, size: 20, color: color),
-          const SizedBox(width: 8),
+          Icon(icono, size: AppSizes.iconSmall, color: color),
+          const SizedBox(width: AppSpacing.xs),
           Text(
             '$h:$m',
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
+            style: AppType.body.copyWith(
               color: AppColors.onGreen,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSpacing.xs),
           Expanded(
             child: Text(
               etiqueta,
-              style: TextStyle(fontSize: 16, color: color),
+              style: AppType.body.copyWith(color: AppColors.onGreen),
             ),
           ),
         ],
@@ -660,10 +653,21 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
   /// pantalla.
   Map<String, String> _nombres = {};
   StreamSubscription<List<Tratamiento>>? _subNombres;
+  late Stream<List<RegistroToma>> _registros;
+  int _reintento = 0;
 
   @override
   void initState() {
     super.initState();
+    _cargar();
+  }
+
+  void _cargar() {
+    _subNombres?.cancel();
+    _registros = _fs.streamRegistrosDePaciente(
+      widget.pacienteId,
+      limite: _PestanaHistorial.limite,
+    );
     _subNombres = _fs.streamTratamientosDePaciente(widget.pacienteId).listen(
       (tratamientos) {
         if (!mounted) return;
@@ -676,6 +680,13 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
     );
   }
 
+  void _reintentar() {
+    setState(() {
+      _reintento++;
+      _cargar();
+    });
+  }
+
   @override
   void dispose() {
     _subNombres?.cancel();
@@ -685,33 +696,31 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<RegistroToma>>(
-      stream: _fs.streamRegistrosDePaciente(
-        widget.pacienteId,
-        limite: _PestanaHistorial.limite,
-      ),
+      key: ValueKey('historial-$_reintento'),
+      stream: _registros,
       builder: (context, snap) {
         if (snap.hasError) {
-          return Center(
-            child: Text(
-              snap.error.toString(),
-              style: const TextStyle(color: AppColors.textSecondary),
+          return EstadoError(
+            mensaje: mensajeErrorAmigable(
+              snap.error!,
+              contexto: 'Error cargando historial del paciente',
             ),
+            onReintentar: _reintentar,
           );
         }
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EstadoCargando(texto: 'Cargando historial...');
         }
         final registros = snap.data ?? const <RegistroToma>[];
         if (registros.isEmpty) {
-          return const Center(
-            child: Text(
-              'Todavía no hay tomas registradas.',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
+          return const EstadoVacio(
+            icono: Icons.history,
+            titulo: 'Aún no hay tomas registradas',
+            mensaje: 'Cuando confirmes una toma, aparecerá aquí.',
           );
         }
         return ListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.sm),
           itemCount: registros.length,
           itemBuilder: (context, i) {
             final r = registros[i];
@@ -752,20 +761,23 @@ class _FilaHistorial extends StatelessWidget {
     final m = registro.horaProgramada.minute.toString().padLeft(2, '0');
 
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6),
+      margin: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Icon(icono, size: 44, color: color),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        leading: Icon(icono, size: AppSizes.iconXLarge, color: color),
         title: Text(
           nombreMedicamento,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          style: AppType.button.copyWith(color: AppColors.onGreen),
         ),
         subtitle: Text(
           [
             '${_etiquetaDia(registro.horaProgramada, DateTime.now())} · $h:$m',
             if (etiqueta.isNotEmpty) etiqueta,
           ].join(' · '),
-          style: const TextStyle(fontSize: 24, color: AppColors.onGreen),
+          style: AppType.body.copyWith(color: AppColors.onGreen),
         ),
       ),
     );
@@ -787,46 +799,5 @@ class _FilaHistorial extends StatelessWidget {
     if (dias == 0) return 'Hoy';
     if (dias == 1) return 'Ayer';
     return nombres[dia.weekday - 1];
-  }
-}
-
-class _Empty extends StatelessWidget {
-  /// `true` cuando el paciente sí tiene tratamientos pero hoy ninguno aplica
-  /// (todos filtrados por día), frente a `false` cuando no tiene ninguno.
-  final bool hayTratamientos;
-  const _Empty({required this.hayTratamientos});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.medication, size: 80, color: AppColors.primary),
-            const SizedBox(height: 16),
-            Text(
-              hayTratamientos
-                  ? 'Hoy no tienes tomas'
-                  : 'Todavía no tienes medicamentos',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppColors.onGreen, fontSize: 20),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              hayTratamientos
-                  ? 'Ningún medicamento tiene horario para hoy.'
-                  : 'Tu cuidador los va a agregar.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -8,14 +7,20 @@ import '../../models/registro_toma.dart';
 import '../../models/tratamiento.dart';
 import '../../services/alerta_sin_tomas_service.dart';
 import '../../services/firestore_service.dart';
-import '../../services/imagen_service.dart';
 import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_page_route.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/errores_amigables.dart';
 import '../../utils/etiqueta_toma.dart';
 import '../../utils/estadisticas.dart';
 import '../../utils/registros_toma.dart';
-import '../../utils/resumen_horario.dart';
-import '../../utils/vigencia_tratamiento.dart';
+import '../../widgets/avatar_paciente.dart';
+import '../../widgets/dialogo_accion_delicada.dart';
+import '../../widgets/estados.dart';
+import '../../widgets/snackbars.dart';
+import '../../widgets/tarjeta_medicamento.dart';
+import '../../widgets/tarjeta_paciente.dart';
 import 'editar_tratamiento_screen.dart';
 
 /// Detalle de un paciente: código de vinculación, sus tratamientos y un
@@ -42,7 +47,17 @@ class _DetallePacienteScreenState extends State<DetallePacienteScreen> {
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: EstadoCargando(texto: 'Cargando paciente...'),
+          );
+        }
+        if (snap.hasError) {
+          return Scaffold(
+            body: EstadoError(
+              mensaje: mensajeErrorAmigable(
+                snap.error!,
+                contexto: 'Error cargando detalle del paciente',
+              ),
+            ),
           );
         }
         if (!snap.hasData || !snap.data!.exists) {
@@ -87,7 +102,7 @@ class _DetalleBodyState extends State<_DetalleBody> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           Navigator.of(context).push(
-            MaterialPageRoute(
+            AppPageRoute(
               builder: (_) => EditarTratamientoScreen(
                 pacienteId: paciente.id,
                 esNuevo: true,
@@ -95,22 +110,25 @@ class _DetalleBodyState extends State<_DetalleBody> {
             ),
           );
         },
-        backgroundColor: AppColors.accent,
-        foregroundColor: AppColors.onAccent,
         icon: const Icon(Icons.add),
         label: const Text('Nuevo medicamento'),
       ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.sm,
+              AppSpacing.sm,
+              AppSpacing.sm,
+              AppSpacing.xs,
+            ),
             child: Column(
               children: [
                 _FichaPaciente(paciente: paciente),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.sm),
                 _CardCodigo(paciente: paciente, vinculado: vinculado),
                 if (vinculado) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.xs),
                   _BtnDesvincular(paciente: paciente),
                 ],
               ],
@@ -132,9 +150,6 @@ class _DetalleBodyState extends State<_DetalleBody> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _pestana,
         onTap: (i) => setState(() => _pestana = i),
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: AppColors.accent,
-        unselectedItemColor: AppColors.textSecondary,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.medication),
@@ -153,28 +168,39 @@ class _DetalleBodyState extends State<_DetalleBody> {
 
 /// Pestaña "Horario": lo que ya se veía en el detalle del paciente, la lista de
 /// tratamientos con sus horas y días más el resumen de estado reciente.
-class _PestanaHorario extends StatelessWidget {
+class _PestanaHorario extends StatefulWidget {
   final Paciente paciente;
   const _PestanaHorario({required this.paciente});
 
   @override
+  State<_PestanaHorario> createState() => _PestanaHorarioState();
+}
+
+class _PestanaHorarioState extends State<_PestanaHorario> {
+  int _reintento = 0;
+
+  Paciente get paciente => widget.paciente;
+
+  void _reintentar() => setState(() => _reintento++);
+
+  @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.sm),
       children: [
         _AvisoSinTomas(pacienteId: paciente.id),
-        const Text(
+        Text(
           'Medicamentos',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          style: AppType.title.copyWith(color: AppColors.onGreen),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.xs),
         _listaTratamientos(),
-        const SizedBox(height: 20),
-        const Text(
+        const SizedBox(height: AppSpacing.md),
+        Text(
           'Estado reciente',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          style: AppType.title.copyWith(color: AppColors.onGreen),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.xs),
         _EstadoReciente(pacienteId: paciente.id),
       ],
     );
@@ -182,16 +208,23 @@ class _PestanaHorario extends StatelessWidget {
 
   Widget _listaTratamientos() {
     return StreamBuilder<QuerySnapshot>(
+      key: ValueKey('tratamientos-$_reintento'),
       stream: FirebaseFirestore.instance
           .collection('tratamientos')
           .where('pacienteId', isEqualTo: paciente.id)
           .snapshots(),
       builder: (context, snap) {
         if (snap.hasError) {
-          return const Text('Error al cargar medicamentos');
+          return EstadoError(
+            mensaje: mensajeErrorAmigable(
+              snap.error!,
+              contexto: 'Error cargando tratamientos del paciente',
+            ),
+            onReintentar: _reintentar,
+          );
         }
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EstadoCargando(texto: 'Cargando medicamentos...');
         }
         if (!snap.hasData) {
           return const SizedBox.shrink();
@@ -203,107 +236,30 @@ class _PestanaHorario extends StatelessWidget {
             )
             .toList();
         if (tratamientos.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(
-              child: Text(
-                'Sin medicamentos. Agrega el primero con el botón de abajo.',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
-            ),
+          return const EstadoVacio(
+            icono: Icons.medication,
+            titulo: 'Aún no hay medicamentos',
+            mensaje: 'Agrega el primero con el botón de abajo.',
           );
         }
         final ahora = DateTime.now();
         return Column(
           children: tratamientos.map((t) {
-            final (horasTexto, diasTexto) = resumenHorario(t);
-            final finalizado = !VigenciaTratamiento.estaVigente(t, ahora);
-            return Card(
-              margin: const EdgeInsets.symmetric(vertical: 6),
-              child: ListTile(
-                leading: (t.fotoBase64 != null && t.fotoBase64!.isNotEmpty)
-                    ? CircleAvatar(
-                        backgroundImage: MemoryImage(
-                          ImagenService.decodificar(t.fotoBase64!)!,
-                        ),
-                      )
-                    : const CircleAvatar(child: Icon(Icons.medication)),
-                title: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        t.nombreMedicamento,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
+            return TarjetaMedicamento(
+              tratamiento: t,
+              ahora: ahora,
+              onEliminar: () => _confirmarEliminar(context, t),
+              onTap: () {
+                Navigator.of(context).push(
+                  AppPageRoute(
+                    builder: (_) => EditarTratamientoScreen(
+                      pacienteId: paciente.id,
+                      tratamiento: t,
+                      esNuevo: false,
                     ),
-                    if (finalizado)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.error.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: const Text(
-                          'Finalizado',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.error,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      [
-                        '${t.dosis} dosis · $horasTexto',
-                        // Opcional: solo aparece si se informó.
-                        if (t.duracion != null && t.duracion!.isNotEmpty)
-                          t.duracion!,
-                      ].join(' · '),
-                    ),
-                    // Segunda línea solo en el caso de días compartidos, que es
-                    // cuando no van ya pegados a cada hora.
-                    if (diasTexto.isNotEmpty)
-                      Text(
-                        diasTexto,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                  ],
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline),
-                      color: AppColors.error,
-                      tooltip: 'Eliminar medicamento',
-                      onPressed: () => _confirmarEliminar(context, t),
-                    ),
-                    const Icon(Icons.chevron_right),
-                  ],
-                ),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => EditarTratamientoScreen(
-                        pacienteId: paciente.id,
-                        tratamiento: t,
-                        esNuevo: false,
-                      ),
-                    ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             );
           }).toList(),
         );
@@ -315,31 +271,16 @@ class _PestanaHorario extends StatelessWidget {
     BuildContext context,
     Tratamiento tratamiento,
   ) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar medicamento'),
-        content: Text(
+    final ok = await mostrarDialogoAccionDelicada(
+      context,
+      titulo: 'Eliminar medicamento',
+      mensaje:
           '¿Eliminar ${tratamiento.nombreMedicamento}? '
           'Esta acción no se puede deshacer.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: AppColors.onAccent,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
+      textoAccion: 'Eliminar',
+      icono: Icons.delete_outline,
     );
-    if (ok != true || !context.mounted) return;
+    if (!ok || !context.mounted) return;
 
     try {
       // Primero se cancelan las notificaciones: si el borrado en Firestore
@@ -352,19 +293,17 @@ class _PestanaHorario extends StatelessWidget {
       await FirestoreService().eliminarTratamiento(tratamiento.id);
 
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${tratamiento.nombreMedicamento} eliminado.'),
-          ),
+        HapticFeedback.lightImpact();
+        mostrarSnackExito(
+          context,
+          '${tratamiento.nombreMedicamento} eliminado.',
         );
       }
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error eliminando tratamiento: $e');
-      }
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo eliminar el medicamento.')),
+        mostrarSnackError(
+          context,
+          mensajeErrorAmigable(e, contexto: 'Error eliminando tratamiento'),
         );
       }
     }
@@ -435,27 +374,31 @@ class _AvisoSinTomasState extends State<_AvisoSinTomas> {
             if (alertas.isEmpty) return const SizedBox.shrink();
 
             return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              color: AppColors.error.withValues(alpha: 0.10),
+              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+              color: AppColors.warning.withValues(alpha: 0.10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadii.card),
+                side: const BorderSide(color: AppColors.warning, width: 1.5),
+              ),
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(AppSpacing.sm),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Icon(
                       Icons.warning_amber_rounded,
-                      color: AppColors.error,
+                      color: AppColors.warning,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             '5 días sin tomas',
-                            style: TextStyle(
+                            style: AppType.label.copyWith(
                               fontWeight: FontWeight.bold,
-                              color: AppColors.error,
+                              color: AppColors.warning,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -510,12 +453,17 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
   static const int _limite = 50;
 
   final FirestoreService _fs = FirestoreService();
-  late final Stream<List<Tratamiento>> _tratamientos;
-  late final Stream<List<RegistroToma>> _registros;
+  late Stream<List<Tratamiento>> _tratamientos;
+  late Stream<List<RegistroToma>> _registros;
+  int _reintento = 0;
 
   @override
   void initState() {
     super.initState();
+    _cargar();
+  }
+
+  void _cargar() {
     _tratamientos = _fs.streamTratamientosDePaciente(widget.paciente.id);
     _registros = _fs.streamRegistrosDePaciente(
       widget.paciente.id,
@@ -523,16 +471,30 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
     );
   }
 
+  void _reintentar() {
+    setState(() {
+      _reintento++;
+      _cargar();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<Tratamiento>>(
+      key: ValueKey('historial-tratamientos-$_reintento'),
       stream: _tratamientos,
       builder: (context, tratSnap) {
         if (tratSnap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EstadoCargando(texto: 'Cargando historial...');
         }
         if (tratSnap.hasError) {
-          return _AvisoHistorial(tratSnap.error.toString());
+          return EstadoError(
+            mensaje: mensajeErrorAmigable(
+              tratSnap.error!,
+              contexto: 'Error cargando tratamientos del historial',
+            ),
+            onReintentar: _reintentar,
+          );
         }
         // Se resuelve el nombre una sola vez por lista en vez de un fetch por
         // fila, y con un stream propio para que un medicamento renombrado se
@@ -543,22 +505,34 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
         };
 
         return StreamBuilder<List<RegistroToma>>(
+          key: ValueKey('historial-registros-$_reintento'),
           stream: _registros,
           builder: (context, snap) {
             if (snap.hasError) {
-              return _AvisoHistorial(snap.error.toString());
+              return EstadoError(
+                mensaje: mensajeErrorAmigable(
+                  snap.error!,
+                  contexto: 'Error cargando registros del historial',
+                ),
+                onReintentar: _reintentar,
+              );
             }
             if (snap.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+              return const EstadoCargando(texto: 'Cargando historial...');
             }
             final registros = snap.data ?? const <RegistroToma>[];
             if (registros.isEmpty) {
-              return const _AvisoHistorial('Todavía no hay tomas registradas.');
+              return const EstadoVacio(
+                icono: Icons.history,
+                titulo: 'Aún no hay tomas registradas',
+                mensaje:
+                    'Cuando el paciente confirme una toma, aparecerá aquí.',
+              );
             }
             return ListView.separated(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.sm),
               itemCount: registros.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.xs),
               itemBuilder: (context, i) => _FilaHistorial(
                 registro: registros[i],
                 // Borrar un tratamiento no toca los registros ya escritos, así
@@ -683,26 +657,6 @@ class _BadgeEstado extends StatelessWidget {
   return ('${nombre[0].toUpperCase()}${nombre.substring(1)}', color, icono);
 }
 
-/// Mensaje centrado de la pestaña (sin datos o error).
-class _AvisoHistorial extends StatelessWidget {
-  final String texto;
-  const _AvisoHistorial(this.texto);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Center(
-        child: Text(
-          texto,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.textSecondary),
-        ),
-      ),
-    );
-  }
-}
-
 class _BtnDesvincular extends StatelessWidget {
   final Paciente paciente;
   const _BtnDesvincular({required this.paciente});
@@ -722,51 +676,32 @@ class _BtnDesvincular extends StatelessWidget {
   }
 
   Future<void> _confirmar(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Desvincular dispositivo'),
-        content: const Text(
+    final ok = await mostrarDialogoAccionDelicada(
+      context,
+      titulo: 'Desvincular dispositivo',
+      mensaje:
           'El paciente ya no podrá ver sus medicamentos en este teléfono. '
           'Para volver a vincularlo, tendrá que compartirle el código.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: AppColors.onAccent,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Desvincular'),
-          ),
-        ],
-      ),
+      textoAccion: 'Desvincular',
+      icono: Icons.link_off,
     );
-    if (ok != true || !context.mounted) return;
+    if (!ok || !context.mounted) return;
     try {
       await FirestoreService().desvincularDispositivo(paciente.id);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Dispositivo desvinculado. El paciente deberá '
-              'reingresar el código para volver a vincularse.',
-            ),
-          ),
+        HapticFeedback.lightImpact();
+        mostrarSnackExito(
+          context,
+          'Dispositivo desvinculado. El paciente deberá reingresar el código '
+          'para volver a vincularse.',
         );
       }
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error desvinculando dispositivo: $e');
-      }
       if (context.mounted) {
-        ScaffoldMessenger.of(
+        mostrarSnackError(
           context,
-        ).showSnackBar(SnackBar(content: Text('No se pudo desvincular: $e')));
+          mensajeErrorAmigable(e, contexto: 'Error desvinculando dispositivo'),
+        );
       }
     }
   }
@@ -781,74 +716,62 @@ class _FichaPaciente extends StatelessWidget {
     // Edad, condición, contacto y foto son opcionales: se omite lo que no se
     // informe, así que los pacientes creados antes de que existieran los campos
     // muestran solo el nombre, sin placeholders ni filas vacías.
-    final datos = <String>[
-      if (paciente.edad != null)
-        '${paciente.edad} ${paciente.edad == 1 ? 'año' : 'años'}',
-      if (paciente.condicion != null && paciente.condicion!.isNotEmpty)
-        paciente.condicion!,
-    ];
-    // Se decodifica primero y se comprueba antes de construir el MemoryImage:
-    // un base64 corrupto devolvería null y el `!` reventaría la pantalla.
-    final bytesFoto =
-        (paciente.fotoBase64 != null && paciente.fotoBase64!.isNotEmpty)
-        ? ImagenService.decodificar(paciente.fotoBase64!)
-        : null;
-    final tieneFoto = bytesFoto != null;
-    final contacto = paciente.contactoEmergencia;
+    final edad = paciente.edad;
+    final condicion = paciente.condicion?.trim();
+    final contacto = paciente.contactoEmergencia?.trim();
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        CircleAvatar(
-          radius: 40,
-          backgroundColor: AppColors.primary,
-          foregroundImage: tieneFoto ? MemoryImage(bytesFoto) : null,
-          child: tieneFoto
-              ? null
-              : const Icon(Icons.person, size: 40, color: AppColors.accent),
-        ),
-        const SizedBox(width: 16),
+        AvatarPaciente(paciente: paciente, radio: 40),
+        const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 paciente.nombre,
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppType.title.copyWith(color: AppColors.onGreen),
               ),
-              if (datos.isNotEmpty) ...[
-                const SizedBox(height: 4),
+              if (edad != null) ...[
+                const SizedBox(height: 2),
                 Text(
-                  datos.join(' · '),
-                  style: const TextStyle(
-                    fontSize: 16,
+                  '$edad ${edad == 1 ? 'año' : 'años'}',
+                  style: AppType.body.copyWith(
                     color: AppColors.textSecondary,
+                    fontSize: 14,
                   ),
                 ),
               ],
+              if (condicion != null && condicion.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                ChipCondicion(texto: condicion),
+              ],
               if (contacto != null && contacto.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.phone,
-                      size: 18,
-                      color: AppColors.textSecondary,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        contacto,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: AppColors.textSecondary,
+                const SizedBox(height: AppSpacing.xs),
+                Semantics(
+                  label: 'Contacto de emergencia: $contacto',
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.phone,
+                        size: 18,
+                        color: AppColors.textSecondary,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Emergencias: $contacto',
+                          style: AppType.body.copyWith(
+                            color: AppColors.textSecondary,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ],
@@ -901,9 +824,8 @@ class _CardCodigo extends StatelessWidget {
                   Clipboard.setData(
                     ClipboardData(text: paciente.codigoVinculacion),
                   );
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Código copiado')),
-                  );
+                  HapticFeedback.lightImpact();
+                  mostrarSnackInfo(context, 'Código copiado');
                 },
                 child: Container(
                   width: double.infinity,
@@ -933,52 +855,53 @@ class _CardCodigo extends StatelessWidget {
   }
 }
 
-class _EstadoReciente extends StatelessWidget {
+class _EstadoReciente extends StatefulWidget {
   final String pacienteId;
   const _EstadoReciente({required this.pacienteId});
 
   @override
+  State<_EstadoReciente> createState() => _EstadoRecienteState();
+}
+
+class _EstadoRecienteState extends State<_EstadoReciente> {
+  int _reintento = 0;
+
+  void _reintentar() => setState(() => _reintento++);
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
+      key: ValueKey('estado-reciente-$_reintento'),
       stream: FirebaseFirestore.instance
           .collection('registrosToma')
-          .where('pacienteId', isEqualTo: pacienteId)
+          .where('pacienteId', isEqualTo: widget.pacienteId)
           .orderBy('horaProgramada', descending: true)
           .limit(10)
           .snapshots(),
       builder: (context, snap) {
         if (snap.hasError) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Center(
-              child: Text(
-                'No se pudo cargar el estado reciente.',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
+          return EstadoError(
+            mensaje: mensajeErrorAmigable(
+              snap.error!,
+              contexto: 'Error cargando estado reciente',
             ),
+            onReintentar: _reintentar,
           );
         }
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EstadoCargando(texto: 'Cargando estado...');
         }
         if (!snap.hasData || snap.data!.docs.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Center(
-              child: Text(
-                'Todavía no hay tomas registradas.',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
-            ),
+          return const EstadoVacio(
+            icono: Icons.history,
+            titulo: 'Aún no hay tomas registradas',
+            mensaje: 'Cuando el paciente confirme una toma, aparecerá aquí.',
           );
         }
         // Los duplicados viejos de una misma ranura no deben inflar el panel.
         final registros = RegistrosToma.deduplicarPorRanura(
           snap.data!.docs.map(
-            (d) => RegistroToma.fromMap(
-              d.id,
-              d.data() as Map<String, dynamic>,
-            ),
+            (d) => RegistroToma.fromMap(d.id, d.data() as Map<String, dynamic>),
           ),
         );
         int tomadas = 0, tardias = 0, olvidadas = 0;
@@ -1080,40 +1003,64 @@ class _PestanaEstadisticasState extends State<_PestanaEstadisticas> {
   static const int _diasSecundario = 30;
 
   final FirestoreService _fs = FirestoreService();
-  late final Future<List<RegistroToma>> _registros;
-  late final Stream<List<Tratamiento>> _tratamientos;
+  late Future<List<RegistroToma>> _registros;
+  late Stream<List<Tratamiento>> _tratamientos;
+  int _reintento = 0;
 
   @override
   void initState() {
     super.initState();
+    _cargar();
+  }
+
+  void _cargar() {
     _registros = _fs.getRegistrosRecientes(widget.paciente.id, limite: _limite);
     _tratamientos = _fs.streamTratamientosDePaciente(widget.paciente.id);
+  }
+
+  void _reintentar() {
+    setState(() {
+      _reintento++;
+      _cargar();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<RegistroToma>>(
+      key: ValueKey('estadisticas-registros-$_reintento'),
       future: _registros,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EstadoCargando(texto: 'Cargando estadísticas...');
         }
         if (snap.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Text(snap.error.toString(), textAlign: TextAlign.center),
+          return EstadoError(
+            mensaje: mensajeErrorAmigable(
+              snap.error!,
+              contexto: 'Error cargando registros de estadísticas',
             ),
+            onReintentar: _reintentar,
           );
         }
         final registros = snap.data ?? const <RegistroToma>[];
 
         return StreamBuilder<List<Tratamiento>>(
+          key: ValueKey('estadisticas-tratamientos-$_reintento'),
           stream: _tratamientos,
           builder: (context, tratSnap) {
+            if (tratSnap.hasError) {
+              return EstadoError(
+                mensaje: mensajeErrorAmigable(
+                  tratSnap.error!,
+                  contexto: 'Error cargando tratamientos de estadísticas',
+                ),
+                onReintentar: _reintentar,
+              );
+            }
             if (tratSnap.connectionState == ConnectionState.waiting &&
                 !tratSnap.hasData) {
-              return const Center(child: CircularProgressIndicator());
+              return const EstadoCargando(texto: 'Cargando estadísticas...');
             }
             final tratamientos = tratSnap.data ?? const <Tratamiento>[];
             final ahora = DateTime.now();
@@ -1131,20 +1078,28 @@ class _PestanaEstadisticasState extends State<_PestanaEstadisticas> {
               dias: _diasSecundario,
             );
 
+            if (tratamientos.isEmpty || !titular.hayDatos) {
+              return const EstadoVacio(
+                icono: Icons.bar_chart,
+                titulo: 'Aún no hay estadísticas',
+                mensaje: 'Cuando el paciente tenga medicamentos y tomas, verás aquí su cumplimiento.',
+              );
+            }
+
             return ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.sm),
               children: [
                 _CardAdherencia(resumen: titular, dias: _diasTitular),
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.xs),
                 _CardBarraApilada(resumen: titular),
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.xs),
                 _CardTiraSemanal(resumen: titular),
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.xs),
                 _CardVentanaLarga(resumen: secundario, dias: _diasSecundario),
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.xs),
                 _CardRacha(resumen: titular),
                 if (registros.length >= _limite) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.xs),
                   const _AvisoTruncado(),
                 ],
               ],
@@ -1176,24 +1131,33 @@ class _CardAdherencia extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Adherencia · últimos $dias días',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+            Semantics(
+              header: true,
+              child: Text(
+                'Adherencia de los últimos $dias días',
+                style: AppType.label.copyWith(color: AppColors.onGreen),
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              pct == null ? '—' : '${pct.round()}%',
-              style: const TextStyle(
-                fontSize: 44,
-                fontWeight: FontWeight.bold,
-                color: AppColors.accent,
+            const SizedBox(height: AppSpacing.xs),
+            Semantics(
+              label: pct == null
+                  ? 'Sin datos de adherencia'
+                  : 'Adherencia del ${pct.round()} por ciento',
+              excludeSemantics: true,
+              child: Text(
+                pct == null ? '—' : '${pct.round()}%',
+                style: const TextStyle(
+                  fontSize: 44,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.accent,
+                ),
               ),
             ),
             Text(
               pct == null
                   ? 'Sin datos: el paciente no tiene horarios con dosis.'
                   : 'de las ${resumen.esperadas} tomas esperadas se tomaron a tiempo.',
-              style: const TextStyle(
+              style: AppType.body.copyWith(
                 color: AppColors.textSecondary,
                 fontSize: 13,
               ),
@@ -1227,11 +1191,14 @@ class _CardBarraApilada extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Reparto de las tomas',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Semantics(
+              header: true,
+              child: Text(
+                'Cómo se repartieron las tomas',
+                style: AppType.label.copyWith(color: AppColors.onGreen),
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.xs),
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: SizedBox(
@@ -1251,12 +1218,12 @@ class _CardBarraApilada extends StatelessWidget {
                     if (resumen.olvidadas > 0)
                       Expanded(
                         flex: peso(resumen.olvidadas),
-                        child: Container(color: AppColors.warning),
+                        child: Container(color: AppColors.error),
                       ),
                     if (resumen.sinRegistro > 0)
                       Expanded(
                         flex: peso(resumen.sinRegistro),
-                        child: Container(color: AppColors.error),
+                        child: Container(color: AppColors.textSecondary),
                       ),
                   ],
                 ),
@@ -1278,12 +1245,12 @@ class _CardBarraApilada extends StatelessWidget {
                   valor: resumen.tardias,
                 ),
                 _Leyenda(
-                  color: AppColors.warning,
+                  color: AppColors.error,
                   texto: 'Olvidadas',
                   valor: resumen.olvidadas,
                 ),
                 _Leyenda(
-                  color: AppColors.error,
+                  color: AppColors.textSecondary,
                   texto: 'Sin registro',
                   valor: resumen.sinRegistro,
                 ),
@@ -1317,24 +1284,36 @@ class _CardTiraSemanal extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Día por día',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Semantics(
+              header: true,
+              child: Text(
+                'Últimos 7 días',
+                style: AppType.label.copyWith(color: AppColors.onGreen),
+              ),
             ),
             const SizedBox(height: 4),
-            const Text(
-              'Cada cuadro toma el peor estado del día.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+            Text(
+              'Cada cuadro muestra el peor estado del día.',
+              style: AppType.body.copyWith(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.xs),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 for (final d in resumen.dias)
-                  _CuadroDia(
-                    inicial: _iniciales[d.dia.weekday - 1],
-                    dia: d.dia,
-                    estado: d.estado,
+                  Expanded(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 44),
+                        child: _CuadroDia(
+                          inicial: _iniciales[d.dia.weekday - 1],
+                          dia: d.dia,
+                          estado: d.estado,
+                        ),
+                      ),
+                    ),
                   ),
               ],
             ),
@@ -1359,6 +1338,16 @@ class _CuadroDia extends StatelessWidget {
     required this.estado,
   });
 
+  static const Map<int, String> _diasLargos = {
+    1: 'Lunes',
+    2: 'Martes',
+    3: 'Miércoles',
+    4: 'Jueves',
+    5: 'Viernes',
+    6: 'Sábado',
+    7: 'Domingo',
+  };
+
   @override
   Widget build(BuildContext context) {
     final color = switch (estado) {
@@ -1372,38 +1361,48 @@ class _CuadroDia extends StatelessWidget {
         dia.year == ahora.year &&
         dia.month == ahora.month &&
         dia.day == ahora.day;
+    final estadoTexto = switch (estado) {
+      EstadoDia.diaPerfecto => 'día perfecto',
+      EstadoDia.conTardias => 'día con tomas tardías',
+      EstadoDia.diaConFaltas => 'día con faltas',
+      EstadoDia.sinDosis => 'sin dosis programadas',
+    };
 
-    return Column(
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: color.withValues(
-              alpha: estado == EstadoDia.sinDosis ? 0.4 : 0.18,
+    return Semantics(
+      label: '${_diasLargos[dia.weekday] ?? 'Día'} ${dia.day}: $estadoTexto',
+      excludeSemantics: true,
+      child: Column(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color.withValues(
+                alpha: estado == EstadoDia.sinDosis ? 0.4 : 0.18,
+              ),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color, width: hoy ? 2 : 1),
             ),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color, width: hoy ? 2 : 1),
+            alignment: Alignment.center,
+            child: Text(
+              inicial,
+              style: TextStyle(
+                color: AppColors.onGreen,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
-          alignment: Alignment.center,
-          child: Text(
-            inicial,
+          const SizedBox(height: 4),
+          Text(
+            '${dia.day}',
             style: TextStyle(
-              color: AppColors.onGreen,
-              fontWeight: FontWeight.w600,
+              fontSize: 11,
+              color: hoy ? AppColors.onGreen : AppColors.textSecondary,
+              fontWeight: hoy ? FontWeight.w700 : FontWeight.normal,
             ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '${dia.day}',
-          style: TextStyle(
-            fontSize: 11,
-            color: hoy ? AppColors.onGreen : AppColors.textSecondary,
-            fontWeight: hoy ? FontWeight.w700 : FontWeight.normal,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -1431,13 +1430,16 @@ class _CardVentanaLarga extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Adherencia · últimos $dias días',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  Semantics(
+                    header: true,
+                    child: Text(
+                      'Adherencia de los últimos $dias días',
+                      style: AppType.label.copyWith(color: AppColors.onGreen),
+                    ),
                   ),
-                  const Text(
+                  Text(
                     'Valor aproximado',
-                    style: TextStyle(
+                    style: AppType.body.copyWith(
                       color: AppColors.textSecondary,
                       fontSize: 12,
                     ),
@@ -1445,12 +1447,18 @@ class _CardVentanaLarga extends StatelessWidget {
                 ],
               ),
             ),
-            Text(
-              pct == null ? '—' : '${pct.round()}%',
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textSecondary,
+            Semantics(
+              label: pct == null
+                  ? 'Sin datos de adherencia'
+                  : 'Adherencia aproximada del ${pct.round()} por ciento',
+              excludeSemantics: true,
+              child: Text(
+                pct == null ? '—' : '${pct.round()}%',
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textSecondary,
+                ),
               ),
             ),
           ],
@@ -1476,17 +1484,20 @@ class _CardRacha extends StatelessWidget {
           children: [
             const Icon(Icons.local_fire_department, color: AppColors.warning),
             const SizedBox(width: 12),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Racha a tiempo',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                  Semantics(
+                    header: true,
+                    child: Text(
+                      'Días seguidos a tiempo',
+                      style: AppType.label.copyWith(color: AppColors.onGreen),
+                    ),
                   ),
                   Text(
-                    'Días seguidos completos, sin contar hoy',
-                    style: TextStyle(
+                    'Días completos, sin contar hoy',
+                    style: AppType.body.copyWith(
                       color: AppColors.textSecondary,
                       fontSize: 12,
                     ),
@@ -1494,12 +1505,16 @@ class _CardRacha extends StatelessWidget {
                 ],
               ),
             ),
-            Text(
-              '$racha',
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: AppColors.warning,
+            Semantics(
+              label: 'Racha de $racha días seguidos a tiempo',
+              excludeSemantics: true,
+              child: Text(
+                '$racha',
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.warning,
+                ),
               ),
             ),
           ],
@@ -1558,17 +1573,21 @@ class _Leyenda extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (valor == 0) return const SizedBox.shrink();
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text('$texto: $valor', style: const TextStyle(fontSize: 13)),
-      ],
+    return Semantics(
+      label: '$texto: $valor',
+      excludeSemantics: true,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text('$texto: $valor', style: const TextStyle(fontSize: 13)),
+        ],
+      ),
     );
   }
 }

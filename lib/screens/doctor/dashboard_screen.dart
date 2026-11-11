@@ -11,7 +11,13 @@ import '../../services/firestore_service.dart';
 import '../../services/notificaciones_service.dart';
 import '../../services/push_service.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_page_route.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/errores_amigables.dart';
 import '../../widgets/confirmar_salida_app.dart';
+import '../../widgets/estados.dart';
+import '../../widgets/lista_pacientes.dart';
+import '../../widgets/menu_ayuda.dart';
 import 'detalle_paciente_screen.dart';
 import 'nuevo_paciente_screen.dart';
 
@@ -46,6 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final Map<String, String> _nombresMedicamento = {};
   StreamSubscription<List<RegistroToma>>? _registrosSub;
   List<String> _pacienteIds = [];
+  int _reintentoPacientes = 0;
 
   @override
   void initState() {
@@ -98,8 +105,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (_notificados.contains(r.id)) continue;
       _notificados.add(r.id);
 
-      final nombrePaciente =
-          _nombresPaciente[r.pacienteId] ?? 'Paciente';
+      final nombrePaciente = _nombresPaciente[r.pacienteId] ?? 'Paciente';
       String nombreMed = _nombresMedicamento[r.tratamientoId] ?? 'medicamento';
       if (!_nombresMedicamento.containsKey(r.tratamientoId)) {
         final t = await _fs.getTratamiento(r.tratamientoId);
@@ -149,7 +155,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         estado != AppLifecycleState.detached;
   }
 
-/// Si un estado amerita aviso al cuidador.
+  /// Si un estado amerita aviso al cuidador.
   ///
   /// Incluye `tardia` porque la toma **se tomó**: lo que hay que señalar es que
   /// llegó con retraso, y el cuidador es quien puede validar si eso importa.
@@ -205,98 +211,95 @@ class _DashboardScreenState extends State<DashboardScreen> {
         appBar: AppBar(
           title: const Text('Mis pacientes'),
           actions: [
-            IconButton(
-              icon: const Icon(Icons.logout),
-              tooltip: 'Cerrar sesión',
-              onPressed: () async {
-                // Antes de cerrar sesión: dejar de recibir push en este teléfono.
-                await _push.cerrarSesionCuidador();
-                await _auth.cerrarSesion();
-              },
+            const AyudaBoton(),
+            Semantics(
+              button: true,
+              label: 'Cerrar sesión',
+              excludeSemantics: true,
+              child: IconButton(
+                icon: const Icon(Icons.logout),
+                tooltip: 'Cerrar sesión',
+                onPressed: () async {
+                  // Antes de cerrar sesión: dejar de recibir push en este teléfono.
+                  await _push.cerrarSesionCuidador();
+                  await _auth.cerrarSesion();
+                },
+              ),
             ),
           ],
         ),
         floatingActionButton: FloatingActionButton.extended(
           onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const NuevoPacienteScreen(),
-              ),
-            );
+            Navigator.of(
+              context,
+            ).push(AppPageRoute(builder: (_) => const NuevoPacienteScreen()));
           },
-          backgroundColor: AppColors.accent,
-          foregroundColor: AppColors.onAccent,
           icon: const Icon(Icons.person_add),
           label: const Text('Nuevo paciente'),
         ),
         body: _uidVacio
             ? const Center(child: Text('No hay sesión activa'))
             : StreamBuilder<QuerySnapshot>(
+                key: ValueKey('pacientes-$_reintentoPacientes'),
                 stream: FirebaseFirestore.instance
                     .collection('pacientes')
                     .where('cuidadorId', isEqualTo: uid)
                     .snapshots(),
                 builder: (context, snap) {
                   if (snap.hasError) {
-                    return const Center(
-                      child: Text('Error al cargar pacientes'),
+                    return EstadoError(
+                      mensaje: mensajeErrorAmigable(
+                        snap.error!,
+                        contexto: 'Error cargando pacientes del cuidador',
+                      ),
+                      onReintentar: () => setState(() => _reintentoPacientes++),
                     );
                   }
                   if (snap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const EstadoCargando(texto: 'Cargando pacientes...');
                   }
                   final pacientes = snap.data!.docs
-                      .map((d) =>
-                          Paciente.fromMap(d.id, d.data() as Map<String, dynamic>))
+                      .map(
+                        (d) => Paciente.fromMap(
+                          d.id,
+                          d.data() as Map<String, dynamic>,
+                        ),
+                      )
                       .toList();
                   if (pacientes.isEmpty) {
-                    return _EmptyState(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const NuevoPacienteScreen(),
-                          ),
-                        );
-                      },
+                    return EstadoVacio(
+                      icono: Icons.group_off,
+                      titulo: 'Aún no tienes pacientes',
+                      mensaje: 'Agrega un paciente y compártele el código de vinculación.',
+                      accion: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            AppPageRoute(
+                              builder: (_) => const NuevoPacienteScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.person_add),
+                        label: const Text('Agregar paciente'),
+                      ),
                     );
                   }
-                  return ListView(
-                    padding: const EdgeInsets.all(12),
-                    children: [
-                      ...pacientes.map(
-                        (p) => Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: AppColors.accent,
-                              foregroundColor: AppColors.onAccent,
-                              child: const Icon(Icons.person),
-                            ),
-                            title: Text(p.nombre,
-                                style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold)),
-                            subtitle: Text('Código: ${p.codigoVinculacion}'),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => DetallePacienteScreen(
-                                    pacienteId: p.id,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+                  return ListaPacientes(
+                    pacientes: pacientes,
+                    onTap: (p) {
+                      Navigator.of(context).push(
+                        AppPageRoute(
+                          builder: (_) =>
+                              DetallePacienteScreen(pacienteId: p.id),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      _ActividadReciente(
-                        pacienteIds: _pacienteIds,
-                        nombresPaciente: _nombresPaciente,
-                        nombresMedicamento: _nombresMedicamento,
-                        fs: _fs,
-                      ),
-                    ],
+                      );
+                    },
+                    footer: _ActividadReciente(
+                      pacienteIds: _pacienteIds,
+                      nombresPaciente: _nombresPaciente,
+                      nombresMedicamento: _nombresMedicamento,
+                      fs: _fs,
+                    ),
                   );
                 },
               ),
@@ -304,13 +307,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  bool get _uidVacio =>
-      FirebaseAuth.instance.currentUser == null;
+  bool get _uidVacio => FirebaseAuth.instance.currentUser == null;
 }
 
 /// Panel de actividad reciente: refleja en tiempo real las confirmaciones de
 /// los pacientes del cuidador (mecanismo principal de alerta, sin servidor).
-class _ActividadReciente extends StatelessWidget {
+class _ActividadReciente extends StatefulWidget {
   final List<String> pacienteIds;
   final Map<String, String> nombresPaciente;
   final Map<String, String> nombresMedicamento;
@@ -324,65 +326,96 @@ class _ActividadReciente extends StatelessWidget {
   });
 
   @override
+  State<_ActividadReciente> createState() => _ActividadRecienteState();
+}
+
+class _ActividadRecienteState extends State<_ActividadReciente> {
+  int _reintento = 0;
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<RegistroToma>>(
-      stream: fs.streamRegistrosDePacientes(pacienteIds, limite: 10),
+      key: ValueKey('actividad-$_reintento'),
+      stream: widget.fs.streamRegistrosDePacientes(
+        widget.pacienteIds,
+        limite: 10,
+      ),
       builder: (context, snap) {
         if (snap.hasError) {
-          return const SizedBox.shrink();
+          return EstadoError(
+            mensaje: mensajeErrorAmigable(
+              snap.error!,
+              contexto: 'Error cargando actividad reciente',
+            ),
+            onReintentar: () => setState(() => _reintento++),
+          );
+        }
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const EstadoCargando(texto: 'Cargando actividad...');
         }
         final registros = snap.data ?? const [];
-final confirmados = registros
-            .where((r) =>
-                r.estado == EstadoToma.tomada ||
-                r.estado == EstadoToma.tardia ||
-                r.estado == EstadoToma.pospuesta)
+        final confirmados = registros
+            .where(
+              (r) =>
+                  r.estado == EstadoToma.tomada ||
+                  r.estado == EstadoToma.tardia ||
+                  r.estado == EstadoToma.pospuesta,
+            )
             .toList();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Actividad reciente',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: AppType.title.copyWith(color: AppColors.onGreen),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.xs),
             if (confirmados.isEmpty)
-              const Card(
+              Card(
                 child: Padding(
-                  padding: EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppSpacing.sm),
                   child: Text(
                     'Aún no hay confirmaciones. Se verán acá en tiempo real.',
-                    style: TextStyle(color: AppColors.textSecondary),
+                    style: AppType.body.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
               )
             else
               ...confirmados.map((r) {
                 final nombrePaciente =
-                    nombresPaciente[r.pacienteId] ?? 'Paciente';
-                final nombreMed = nombresMedicamento[r.tratamientoId] ??
-                    'medicamento';
-final tomada = r.estado == EstadoToma.tomada;
+                    widget.nombresPaciente[r.pacienteId] ?? 'Paciente';
+                final nombreMed =
+                    widget.nombresMedicamento[r.tratamientoId] ?? 'medicamento';
+                final tomada = r.estado == EstadoToma.tomada;
                 final tardia = r.estado == EstadoToma.tardia;
                 final (icono, color) = tardia
                     ? (Icons.timer_outlined, AppColors.amber)
                     : tomada
-                        ? (Icons.check_circle, AppColors.accent)
-                        : (Icons.snooze, AppColors.warning);
+                    ? (Icons.check_circle, AppColors.accent)
+                    : (Icons.snooze, AppColors.warning);
                 return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  margin: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
                   child: ListTile(
                     leading: Icon(icono, color: color),
-                    title: Text(tardia
-                        ? '$nombrePaciente tomó $nombreMed tarde'
-                        : tomada
-                            ? '$nombrePaciente tomó $nombreMed'
-                            : '$nombrePaciente pospuso $nombreMed'),
+                    title: Text(
+                      tardia
+                          ? '$nombrePaciente tomó $nombreMed tarde'
+                          : tomada
+                          ? '$nombrePaciente tomó $nombreMed'
+                          : '$nombrePaciente pospuso $nombreMed',
+                      style: AppType.body.copyWith(color: AppColors.onGreen),
+                    ),
                     // `horaConfirmacion` es null en las olvidadas, pero esas no
                     // llegan aquí; el fallback cubre registros antigos.
-                    subtitle:
-                        Text(_hora(r.horaConfirmacion ?? r.horaProgramada)),
+                    subtitle: Text(
+                      _hora(r.horaConfirmacion ?? r.horaProgramada),
+                      style: AppType.label.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
                   ),
                 );
               }),
@@ -396,42 +429,5 @@ final tomada = r.estado == EstadoToma.tomada;
     final h = d.hour.toString().padLeft(2, '0');
     final m = d.minute.toString().padLeft(2, '0');
     return '$h:$m';
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  final VoidCallback onTap;
-  const _EmptyState({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.group_off, size: 80, color: AppColors.textSecondary),
-            const SizedBox(height: 16),
-            const Text(
-              'Todavía no tienes pacientes',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Agrega un paciente y compártele el código de vinculación.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: onTap,
-              icon: const Icon(Icons.person_add),
-              label: const Text('Agregar paciente'),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

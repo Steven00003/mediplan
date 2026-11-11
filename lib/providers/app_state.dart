@@ -39,6 +39,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// fondo, un reingreso o una reprogramación completa.
   bool _rearmandoAlarmas = false;
 
+  /// Última firma del rearme: fecha local, paciente y tratamientos relevantes.
+  DateTime? _ultimaFechaRearme;
+  String? _ultimoPacienteRearme;
+  String? _firmaTratamientosRearme;
+
   /// `true` mientras haya una pantalla de alarma abierta.
   ///
   /// Bloquea la reconciliación: una toma no se da por olvidada mientras el
@@ -137,7 +142,31 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _rearmandoAlarmas = true;
     try {
       final tratamientos = await _leerTratamientosParaRearmar(pacienteId);
-      await _notif.rearmarAlarmasDeTratamientos(tratamientos: tratamientos);
+      final ahora = DateTime.now();
+      final fecha = DateTime(ahora.year, ahora.month, ahora.day);
+      final firma = _firmaTratamientos(tratamientos);
+      final cambio =
+          _ultimaFechaRearme != fecha ||
+          _ultimoPacienteRearme != pacienteId ||
+          _firmaTratamientosRearme != firma;
+
+      // El tick de 60 s no rearma por rutina: solo si cambió el día, el
+      // paciente o los tratamientos, o si de verdad falta una ocurrencia.
+      if (!cambio &&
+          !await _notif.hayOcurrenciasFaltantes(
+            tratamientos: tratamientos,
+            ahora: ahora,
+          )) {
+        return;
+      }
+
+      await _notif.rearmarAlarmasDeTratamientos(
+        tratamientos: tratamientos,
+        ahora: ahora,
+      );
+      _ultimaFechaRearme = fecha;
+      _ultimoPacienteRearme = pacienteId;
+      _firmaTratamientosRearme = firma;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('No se pudo rearmar la ventana de alarmas: $e');
@@ -145,6 +174,27 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       _rearmandoAlarmas = false;
     }
+  }
+
+  String _firmaTratamientos(List<Tratamiento> tratamientos) {
+    final partes = <String>[];
+    for (final tratamiento in tratamientos) {
+      final horarios = tratamiento.horarios
+          .map((h) => '${h.hora}:${([...h.dias]..sort()).join(',')}')
+          .toList()
+        ..sort();
+      partes.add(
+        [
+          tratamiento.id,
+          tratamiento.nombreMedicamento,
+          tratamiento.fechaInicio?.millisecondsSinceEpoch ?? '',
+          tratamiento.duracionDias ?? '',
+          horarios.join(';'),
+        ].join('|'),
+      );
+    }
+    partes.sort();
+    return partes.join('||');
   }
 
   Future<List<Tratamiento>> _leerTratamientosParaRearmar(
@@ -461,6 +511,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       }
       // La alarma principal se rearma como ventana de ocurrencias puntuales.
       await _notif.rearmarAlarmasDeTratamientos(tratamientos: tratamientos);
+      final ahora = DateTime.now();
+      _ultimaFechaRearme = DateTime(ahora.year, ahora.month, ahora.day);
+      _ultimoPacienteRearme = pacienteId;
+      _firmaTratamientosRearme = _firmaTratamientos(tratamientos);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('No se pudieron reprogramar las notificaciones: $e');
@@ -497,6 +551,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _alarmaAbierta = false;
     _pararTimerOmitidas();
     _omitidas.invalidar();
+    _ultimaFechaRearme = null;
+    _ultimoPacienteRearme = null;
+    _firmaTratamientosRearme = null;
     notifyListeners();
   }
 

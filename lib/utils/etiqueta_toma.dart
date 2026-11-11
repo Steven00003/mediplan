@@ -15,7 +15,7 @@ String horaCorta(DateTime d) {
 }
 
 /// Día de una toma programada como texto corto: `Hoy`, `Ayer`, `Mié 12` o
-/// `12 mar 2025` si es de otro año.
+/// `12 mar 2026` si es de otro año.
 ///
 /// Se comparan **días de calendario**, no diferencias de 24 h: una toma de las
 /// 23:50 de ayer y otra de las 00:10 de hoy están a 20 minutos una de otra pero

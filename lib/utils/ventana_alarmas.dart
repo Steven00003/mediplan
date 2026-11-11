@@ -123,6 +123,35 @@ class VentanaAlarmas {
     return resultado;
   }
 
+  /// Ocurrencias entre [desde] y [hasta], incluidas las ya pasadas.
+  ///
+  /// Se usa para reconstruir la hora de una alarma puntual que Android tiene
+  /// pendiente pero cuyo metadato local ya no está. A diferencia de
+  /// [ocurrencias], no exige que la ocurrencia sea futura.
+  static List<OcurrenciaAlarma> ocurrenciasEnRango({
+    required String tratamientoId,
+    required List<HorarioDia> horarios,
+    required DateTime desde,
+    required DateTime hasta,
+    DateTime? fechaInicio,
+    int? duracionDias,
+    bool respetarVigencia = true,
+  }) {
+    if (hasta.isBefore(desde)) return const [];
+    final primerDia = DateTime(desde.year, desde.month, desde.day);
+    final ultimoDia = DateTime(hasta.year, hasta.month, hasta.day);
+    final dias = ultimoDia.difference(primerDia).inDays + 1;
+    return ocurrencias(
+      tratamientoId: tratamientoId,
+      horarios: horarios,
+      ahora: desde.subtract(const Duration(microseconds: 1)),
+      fechaInicio: fechaInicio,
+      duracionDias: duracionDias,
+      dias: dias,
+      respetarVigencia: respetarVigencia,
+    ).where((o) => !o.horaProgramada.isAfter(hasta)).toList();
+  }
+
   /// Id estable de una ocurrencia concreta.
   ///
   /// La clave incluye tratamiento, fecha y hora (al minuto), así que la misma

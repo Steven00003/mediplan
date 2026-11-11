@@ -1,5 +1,6 @@
-// Prueba de humo de la app. No requiere conexión con Firebase: solo verifica
-// que la pantalla de selección de rol renderiza sus dos botones.
+// Pruebas de humo de la app. No requieren conexión con Firebase: verifican la
+// selección de rol, el login y que ambas pantallas no desborden en móvil
+// pequeño con texto ampliado.
 //
 // Estas pruebas no inician Firebase (requeriría el emulador y configuración),
 // por lo que solo cubren widgets puros. Las pantallas que dependen de Firebase
@@ -9,7 +10,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:mediplan/screens/doctor/login_screen.dart';
 import 'package:mediplan/screens/seleccion_rol_screen.dart';
+import 'package:mediplan/theme/app_theme.dart';
 
 Future<void> _pumpSeleccionRol(
   WidgetTester tester, {
@@ -25,6 +28,23 @@ Future<void> _pumpSeleccionRol(
         );
       },
       home: const SeleccionRolScreen(),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pumpLogin(WidgetTester tester, {double textScale = 1.0}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildAppTheme(),
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+      home: const LoginScreen(),
     ),
   );
   await tester.pumpAndSettle();
@@ -116,8 +136,36 @@ void main() {
       await _pumpSeleccionRol(tester, textScale: 1.3);
 
       expect(find.text('Entrar como Ana'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'Selección de rol sin vinculación no desborda a 320 dp y textScale 1.3',
+    (WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 480));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await _pumpSeleccionRol(tester, textScale: 1.3);
+
+      expect(find.text('Paciente'), findsOneWidget);
+      expect(find.text('Doctor'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('Login no desborda a 320 dp y textScale 1.3', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await _pumpLogin(tester, textScale: 1.3);
+
+    expect(find.text('Inicia sesión'), findsOneWidget);
+    expect(find.text('Entrar'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   test('formato de código de vinculación', () {
     // El código generado debería respetar el formato MEDI-XXXXXX.

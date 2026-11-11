@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../theme/app_colors.dart';
+import 'dialogo_accion_delicada.dart';
 
 /// Confirma el cierre COMPLETO de la app cuando se usa el gesto/botón de atrás
 /// de Android estando en una pantalla que es la **raíz** de la navegación.
@@ -42,40 +42,17 @@ class ConfirmarSalidaApp extends StatelessWidget {
   /// [SystemNavigator.pop]. Cerrar tocando fuera del diálogo (o con el atrás)
   /// equivale a cancelar.
   Future<void> _confirmarSalida(BuildContext context) async {
-    final salir = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('¿Salir de MediPlan?'),
-        content: const Text(
+    final salir = await mostrarDialogoAccionDelicada(
+      context,
+      titulo: '¿Salir de MediPlan?',
+      mensaje:
           'Se cerrará la aplicación. Podrás volver a abrirla cuando quieras.',
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          // Cerrar la app es destructivo: nunca es la opción por defecto ni la
-          // destacada; "Cancelar" va con autofocus y en color de acción.
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.error,
-              visualDensity: VisualDensity.compact,
-            ),
-            child: const Text('Salir'),
-          ),
-          ElevatedButton(
-            autofocus: true,
-            onPressed: () => Navigator.of(ctx).pop(false),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accent,
-              foregroundColor: AppColors.onAccent,
-              minimumSize: const Size(140, 48),
-            ),
-            child: const Text('Cancelar'),
-          ),
-        ],
-      ),
+      textoAccion: 'Salir',
+      icono: Icons.logout,
     );
-    // null = se descartó el diálogo (toque fuera o atrás) → no se cierra.
-    if (salir == true) {
+    // false = se descartó el diálogo (toque fuera o atrás) → no se cierra.
+    if (salir) {
+      HapticFeedback.lightImpact();
       await SystemNavigator.pop();
     }
   }

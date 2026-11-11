@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../providers/app_state.dart';
 import '../../services/vinculacion_service.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 
 /// Pantalla del rol Paciente: ingresa el código que le dio su cuidador.
 /// No requiere login; el vínculo se persiste localmente.
@@ -29,6 +30,7 @@ class _CodigoUnirseScreenState extends State<CodigoUnirseScreen> {
   }
 
   Future<void> _unirse() async {
+    if (_cargando) return;
     final codigo = _codigoController.text.trim();
     if (codigo.isEmpty) {
       setState(() => _error = 'Escribí el código que te dio tu cuidador.');
@@ -70,7 +72,8 @@ class _CodigoUnirseScreenState extends State<CodigoUnirseScreen> {
     if (!mounted) return;
     setState(() {
       _cargando = false;
-      _error = 'No pudimos verificar el código. '
+      _error =
+          'No pudimos verificar el código. '
           'Revisa tu conexión e inténtalo de nuevo.';
     });
   }
@@ -82,96 +85,88 @@ class _CodigoUnirseScreenState extends State<CodigoUnirseScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(AppSpacing.md),
             child: Column(
               children: [
-                const Icon(Icons.link, size: 72, color: AppColors.accent),
-                const SizedBox(height: 16),
-                const Text(
+                const Icon(
+                  Icons.link,
+                  size: AppSizes.iconXLarge + AppSizes.icon,
+                  color: AppColors.accent,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
                   'Código para unirse',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.onGreen,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: AppType.title.copyWith(color: AppColors.onGreen),
                 ),
-                const SizedBox(height: 8),
-                const Text(
+                const SizedBox(height: AppSpacing.xs),
+                Text(
                   'Tu cuidador te dio un código.\nEscríbelo acá para empezar.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.onGreen, fontSize: 16),
+                  style: AppType.body.copyWith(color: AppColors.onGreen),
                 ),
-                const SizedBox(height: 24),
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: _codigoController,
-                        textCapitalization: TextCapitalization.characters,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 30,
-                          letterSpacing: 3,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        decoration: const InputDecoration(
-                          hintText: 'MEDI-XXXXXX',
-                          border: OutlineInputBorder(),
-                        ),
-                        onSubmitted: (_) => _unirse(),
-                      ),
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          _error!,
+                const SizedBox(height: AppSpacing.md),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: _codigoController,
+                          textCapitalization: TextCapitalization.characters,
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: AppColors.error,
-                            fontSize: 14,
+                          style: AppType.display.copyWith(
+                            color: AppColors.onGreen,
+                            letterSpacing: 3,
+                          ),
+                          decoration: const InputDecoration(
+                            hintText: 'MEDI-XXXXXX',
+                          ),
+                          onSubmitted: (_) => _unirse(),
+                        ),
+                        if (_error != null) ...[
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: AppType.label.copyWith(
+                              color: AppColors.error,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: AppSpacing.md),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _cargando ? null : _unirse,
+                            child: _cargando
+                                ? const SizedBox(
+                                    width: AppSizes.icon,
+                                    height: AppSizes.icon,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppColors.onAccent,
+                                    ),
+                                  )
+                                : const Text('Unirme'),
                           ),
                         ),
                       ],
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: ElevatedButton(
-                          onPressed: _cargando ? null : _unirse,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.accent,
-                            foregroundColor: AppColors.onAccent,
-                          ),
-                          child: _cargando
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.onAccent,
-                                  ),
-                                )
-                              : const Text('Unirme',
-                                  style: TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.sm),
                 TextButton(
                   onPressed: () =>
                       Navigator.of(context).popUntil((r) => r.isFirst),
-                  child: const Text('Atrás',
-                      style: TextStyle(
-                          color: AppColors.onGreen, fontSize: 18)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.onGreen,
+                    minimumSize: const Size(
+                      AppSizes.minTouch,
+                      AppSizes.minTouch,
+                    ),
+                  ),
+                  child: const Text('Atrás'),
                 ),
               ],
             ),

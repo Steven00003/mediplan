@@ -6,6 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import '../../services/imagen_service.dart';
 import '../../services/vinculacion_service.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_page_route.dart';
+import '../../utils/errores_amigables.dart';
+import '../../widgets/snackbars.dart';
 import 'detalle_paciente_screen.dart';
 
 /// Crea un paciente nuevo, genera su código de vinculación único y lo muestra
@@ -55,11 +58,7 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
         _cargando = false;
       });
       if (base64 == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se pudo procesar la foto. Elige otra.'),
-          ),
-        );
+        mostrarSnackError(context, 'No se pudo procesar la foto. Elige otra.');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -67,13 +66,12 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
       }
       if (!mounted) return;
       setState(() => _cargando = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al procesar la foto: $e')),
-      );
+      mostrarSnackError(context, 'No se pudo procesar la foto. Elige otra.');
     }
   }
 
   Future<void> _crear() async {
+    if (_cargando) return;
     final nombre = _nombreController.text.trim();
     if (nombre.isEmpty) {
       setState(() => _error = 'Ingresa el nombre del paciente.');
@@ -104,23 +102,18 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
         fotoBase64: _fotoBase64,
       );
       _nombreController.clear();
+      HapticFeedback.lightImpact();
       // Abrimos el detalle que mostrará el código recién generado.
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => DetallePacienteScreen.porId(pacienteId),
-          ),
+          AppPageRoute(builder: (_) => DetallePacienteScreen.porId(pacienteId)),
         );
       }
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error al crear paciente: $e');
-      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo crear el paciente: $e')),
-      );
-      setState(() => _error = 'No se pudo crear el paciente.');
+      setState(() {
+        _error = mensajeErrorAmigable(e, contexto: 'Error creando paciente');
+      });
     } finally {
       if (mounted) setState(() => _cargando = false);
     }
@@ -135,9 +128,7 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nuevo paciente'),
-      ),
+      appBar: AppBar(title: const Text('Nuevo paciente')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -199,10 +190,7 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
             _fotoWidget(),
             if (_error != null) ...[
               const SizedBox(height: 12),
-              Text(
-                _error!,
-                style: TextStyle(color: AppColors.error),
-              ),
+              Text(_error!, style: TextStyle(color: AppColors.error)),
             ],
             const SizedBox(height: 24),
             SizedBox(
@@ -223,8 +211,10 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
                           color: AppColors.onAccent,
                         ),
                       )
-                    : const Text('Generar código',
-                        style: TextStyle(fontSize: 18)),
+                    : const Text(
+                        'Generar código',
+                        style: TextStyle(fontSize: 18),
+                      ),
               ),
             ),
             const SizedBox(height: 12),
@@ -247,6 +237,8 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
       contenido = const Center(child: CircularProgressIndicator());
     } else if (_fotoBase64 != null && _fotoBase64!.isNotEmpty) {
       final bytes = ImagenService.decodificar(_fotoBase64!);
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      final cache = (120 * dpr).round().clamp(1, 4096).toInt();
       contenido = bytes != null
           ? ClipRRect(
               borderRadius: BorderRadius.circular(16),
@@ -255,6 +247,9 @@ class _NuevoPacienteScreenState extends State<NuevoPacienteScreen> {
                 width: 120,
                 height: 120,
                 fit: BoxFit.cover,
+                gaplessPlayback: true,
+                cacheWidth: cache,
+                cacheHeight: cache,
                 errorBuilder: (_, _, _) => const _IconoFotoPaciente(),
               ),
             )

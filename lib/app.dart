@@ -22,6 +22,7 @@ import 'services/push_service.dart';
 import 'services/ventana_alarma_service.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
+import 'theme/app_tokens.dart';
 import 'utils/vigencia_tratamiento.dart';
 import 'widgets/app_logo.dart';
 
@@ -442,44 +443,55 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       );
     }
 
-    if (_cargando) {
-      return Scaffold(
-        // Verde principal (coincide con el color del splash nativo): el logo
-        // transparente se muestra directamente sobre él, sin caja detrás.
-        backgroundColor: AppColors.primary,
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const AppLogo(tamanoLogo: 112, tamanoTexto: 38),
-              const SizedBox(height: 32),
-              const SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(
-                  strokeWidth: 3,
-                  color: AppColors.accent,
+    return AnimatedSwitcher(
+      duration: AppMotion.fade,
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: _cargando
+          ? Scaffold(
+              key: const ValueKey('bootstrap-splash'),
+              // Verde principal (coincide con el color del splash nativo): el
+              // logo transparente se muestra directamente sobre él.
+              backgroundColor: AppColors.primary,
+              body: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const AppLogo(tamanoLogo: 112, tamanoTexto: 38),
+                    const SizedBox(height: AppSpacing.lg),
+                    const SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Preparando MediPlan...',
+                      style: AppType.body.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xxl),
+                    Text(
+                      '© ${DateTime.now().year} MediPlan · Proyecto académico UTS',
+                      textAlign: TextAlign.center,
+                      style: AppType.label.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 12),
-              const Text(
-                'Preparando MediPlan...',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 48),
-              const Text(
-                '© 2025 MediPlan. Todos los derechos reservados.',
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return ChangeNotifierProvider.value(
-      value: _appState,
-      child: const HomeRouter(),
+            )
+          : ChangeNotifierProvider.value(
+              key: const ValueKey('bootstrap-home'),
+              value: _appState,
+              child: const HomeRouter(),
+            ),
     );
   }
 }

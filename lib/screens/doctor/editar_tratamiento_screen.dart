@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../models/tratamiento.dart';
@@ -7,7 +8,9 @@ import '../../services/firestore_service.dart';
 import '../../services/imagen_service.dart';
 import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/errores_amigables.dart';
 import '../../utils/vigencia_tratamiento.dart';
+import '../../widgets/snackbars.dart';
 
 /// Pantalla para crear o editar un tratamiento (medicamento) de un paciente.
 ///
@@ -172,11 +175,7 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
         });
       }
       if (base64 == null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se pudo procesar la foto. Elige otra.'),
-          ),
-        );
+        mostrarSnackError(context, 'No se pudo procesar la foto. Elige otra.');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -184,9 +183,7 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
       }
       if (mounted) {
         setState(() => _cargando = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al procesar la foto: $e')),
-        );
+        mostrarSnackError(context, 'No se pudo procesar la foto. Elige otra.');
       }
     }
   }
@@ -227,6 +224,7 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
   }
 
   Future<void> _guardar() async {
+    if (_cargando) return;
     final nombre = _nombreController.text.trim();
     final dosis = _dosisController.text.trim();
 
@@ -253,12 +251,9 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
     // Cada horario necesita al menos un día. Si alguno quedó sin marcar, se
     // marcan todos por defecto y se avisa brevemente; nunca se guarda vacío.
     if (_completarDiasFaltantes()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Cada horario necesita al menos un día; se marcaron todos.',
-          ),
-        ),
+      mostrarSnackInfo(
+        context,
+        'Cada horario necesita al menos un día; se marcaron todos.',
       );
       setState(() {});
     }
@@ -333,11 +328,17 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
         );
       }
 
-      if (mounted) Navigator.of(context).pop();
-    } catch (_) {
+      if (mounted) {
+        HapticFeedback.lightImpact();
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'No se pudo guardar el tratamiento.';
+          _error = mensajeErrorAmigable(
+            e,
+            contexto: 'Error guardando tratamiento',
+          );
           _cargando = false;
         });
       }

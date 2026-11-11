@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../constants.dart';
 import '../providers/app_state.dart';
 import '../services/local_store.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_page_route.dart';
+import '../theme/app_tokens.dart';
+import '../utils/abrir_landing.dart';
 import '../utils/reingreso_paciente.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/confirmar_salida_app.dart';
+import '../widgets/menu_ayuda.dart';
 import 'doctor/login_screen.dart';
 import 'paciente/codigo_unirse_screen.dart';
 
@@ -120,11 +122,6 @@ class _SeleccionRolScreenState extends State<SeleccionRolScreen> {
           ElevatedButton(
             autofocus: true,
             onPressed: () => Navigator.of(ctx).pop(false),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryStrong,
-              foregroundColor: AppColors.onAccent,
-              minimumSize: const Size(140, 48),
-            ),
             child: const Text('Cancelar'),
           ),
         ],
@@ -150,7 +147,7 @@ class _SeleccionRolScreenState extends State<SeleccionRolScreen> {
 
   void _abrirCodigo() {
     Navigator.of(context).push(
-      MaterialPageRoute(
+      AppPageRoute(
         // Las rutas push NO heredan el provider de HomeRouter; re-exponemos el
         // mismo AppState para que la pantalla pueda leerlo.
         builder: (_) => ChangeNotifierProvider<AppState>.value(
@@ -163,7 +160,7 @@ class _SeleccionRolScreenState extends State<SeleccionRolScreen> {
 
   void _abrirLogin() {
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const LoginScreen()));
+        .push(AppPageRoute(builder: (_) => const LoginScreen()));
   }
 
   void _mostrar(String mensaje) {
@@ -177,113 +174,106 @@ class _SeleccionRolScreenState extends State<SeleccionRolScreen> {
       child: Scaffold(
         backgroundColor: AppColors.primary,
         body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              // SingleChildScrollView + IntrinsicHeight permiten que la
-              // pantalla se centre cuando sobra espacio y haga scroll cuando
-              // no alcanza (pantallas pequeñas o textScale alto).
-              final altoMinimo = constraints.maxHeight - 48;
-              return SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: altoMinimo > 0 ? altoMinimo : 0,
-                  ),
-                  child: IntrinsicHeight(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Spacer(flex: 2),
-                        // Tocar el logo abre la landing en el navegador
-                        // externo. Sin indicador visual a propósito.
-                        GestureDetector(
-                          onTap: () => _abrirPaginaProyecto(context),
-                          child: const AppLogo(
-                            tamanoLogo: 120,
-                            tamanoTexto: 40,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // SingleChildScrollView + IntrinsicHeight permiten que la
+                    // pantalla se centre cuando sobra espacio y haga scroll cuando
+                    // no alcanza (pantallas pequeñas o textScale alto).
+                    final altoMinimo = constraints.maxHeight - AppSpacing.xxl;
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: altoMinimo > 0 ? altoMinimo : 0,
+                        ),
+                        child: IntrinsicHeight(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Spacer(flex: 2),
+                              // Tocar el logo abre la landing en el navegador
+                              // externo. Sin indicador visual a propósito.
+                              Semantics(
+                                button: true,
+                                label: 'Abrir la página del proyecto MediPlan',
+                                child: GestureDetector(
+                                  onTap: () => abrirLanding(context),
+                                  child: const AppLogo(
+                                    tamanoLogo: 120,
+                                    tamanoTexto: 40,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.xs),
+                              Semantics(
+                                header: true,
+                                child: Text(
+                                  _ofrecerContinuar ? _saludo : '¿Quién es?',
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context).textTheme.titleLarge
+                                      ?.copyWith(
+                                        color: AppColors.onGreen,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.xxl),
+                              if (_ofrecerContinuar) ...[
+                                _TarjetaPacienteRecordado(
+                                  nombre: _nombre,
+                                  cargando: _ingresando,
+                                  onTap: _ingresando
+                                      ? null
+                                      : _continuarComoPaciente,
+                                ),
+                                const SizedBox(height: AppSpacing.sm),
+                                _EnlaceOtroCodigo(
+                                  nombre: _nombre,
+                                  habilitado: !_ingresando,
+                                  onTap: _confirmarUsarOtroCodigo,
+                                ),
+                                const Spacer(flex: 3),
+                                const _SeparadorO(),
+                                const SizedBox(height: AppSpacing.md),
+                                _BotonDoctorSecundario(onTap: _abrirLogin),
+                                const SizedBox(height: AppSpacing.xs),
+                              ] else ...[
+                                _BotonRol(
+                                  icono: Icons.person,
+                                  titulo: 'Paciente',
+                                  descripcion: 'Tomo mis medicinas',
+                                  onTap: _abrirCodigo,
+                                ),
+                                const SizedBox(height: AppSpacing.md),
+                                _BotonRol(
+                                  icono: Icons.medical_services,
+                                  titulo: 'Doctor',
+                                  descripcion: 'Cuido a mis pacientes',
+                                  onTap: _abrirLogin,
+                                ),
+                                const Spacer(flex: 2),
+                              ],
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Semantics(
-                          header: true,
-                          child: Text(
-                            _ofrecerContinuar ? _saludo : '¿Quién es?',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: AppColors.onGreen,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 48),
-                        if (_ofrecerContinuar) ...[
-                          _TarjetaPacienteRecordado(
-                            nombre: _nombre,
-                            cargando: _ingresando,
-                            onTap: _ingresando ? null : _continuarComoPaciente,
-                          ),
-                          const SizedBox(height: 16),
-                          _EnlaceOtroCodigo(
-                            nombre: _nombre,
-                            habilitado: !_ingresando,
-                            onTap: _confirmarUsarOtroCodigo,
-                          ),
-                          const Spacer(flex: 3),
-                          const _SeparadorO(),
-                          const SizedBox(height: 24),
-                          _BotonDoctorSecundario(onTap: _abrirLogin),
-                          const SizedBox(height: 8),
-                        ] else ...[
-                          _BotonRol(
-                            icono: Icons.person,
-                            titulo: 'Paciente',
-                            descripcion: 'Tomo mis medicinas',
-                            onTap: _abrirCodigo,
-                          ),
-                          const SizedBox(height: 20),
-                          _BotonRol(
-                            icono: Icons.medical_services,
-                            titulo: 'Doctor',
-                            descripcion: 'Cuido a mis pacientes',
-                            onTap: _abrirLogin,
-                          ),
-                          const Spacer(flex: 2),
-                        ],
-                      ],
-                    ),
-                  ),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
+              ),
+              Positioned(
+                top: AppSpacing.xs,
+                right: AppSpacing.xs,
+                child: const AyudaBoton(),
+              ),
+            ],
           ),
         ),
       ),
     );
-  }
-
-  /// Abre la landing en el navegador externo del teléfono.
-  /// Si no hay navegador o el lanzamiento falla, avisa sin romper el flujo.
-  Future<void> _abrirPaginaProyecto(BuildContext context) async {
-    var abierto = false;
-    try {
-      abierto = await launchUrl(
-        Uri.parse(urlLanding),
-        mode: LaunchMode.externalApplication,
-      );
-    } catch (_) {
-      abierto = false;
-    }
-
-    if (!abierto && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No pudimos abrir la página. Revisa tu conexión e inténtalo de nuevo.',
-          ),
-        ),
-      );
-    }
   }
 }
 
@@ -320,36 +310,37 @@ class _TarjetaPacienteRecordado extends StatelessWidget {
       excludeSemantics: true,
       child: Material(
         color: AppColors.primaryStrong,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(AppRadii.card),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(AppRadii.card),
           onTap: onTap,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 96),
+            constraints: const BoxConstraints(minHeight: AppSpacing.xxl * 2),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
               child: Row(
                 children: [
                   CircleAvatar(
-                    radius: 28,
+                    radius: AppSizes.avatar / 2,
                     backgroundColor: AppColors.onAccent,
                     child: _inicial.isEmpty
                         ? const Icon(
                             Icons.person,
                             color: AppColors.primaryStrong,
-                            size: 32,
+                            size: AppSizes.iconLarge,
                           )
                         : Text(
                             _inicial,
-                            style: const TextStyle(
+                            style: AppType.title.copyWith(
                               color: AppColors.primaryStrong,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
                             ),
                           ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -362,20 +353,17 @@ class _TarjetaPacienteRecordado extends StatelessWidget {
                             titulo,
                             maxLines: 1,
                             softWrap: false,
-                            style: const TextStyle(
+                            style: AppType.title.copyWith(
                               color: AppColors.onAccent,
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: AppSpacing.xs),
                         Text(
                           cargando ? 'Ingresando...' : 'Sin escribir código',
                           maxLines: 2,
-                          style: const TextStyle(
+                          style: AppType.body.copyWith(
                             color: AppColors.onAccent,
-                            fontSize: 15,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -384,10 +372,10 @@ class _TarjetaPacienteRecordado extends StatelessWidget {
                   ),
                   if (cargando)
                     const Padding(
-                      padding: EdgeInsets.only(left: 12),
+                      padding: EdgeInsets.only(left: AppSpacing.xs),
                       child: SizedBox(
-                        width: 22,
-                        height: 22,
+                        width: AppSizes.icon,
+                        height: AppSizes.icon,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           color: AppColors.onAccent,
@@ -427,11 +415,12 @@ class _EnlaceOtroCodigo extends StatelessWidget {
         onPressed: habilitado ? onTap : null,
         style: TextButton.styleFrom(
           foregroundColor: AppColors.onGreen,
-          minimumSize: const Size(48, 48),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          textStyle: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
+          minimumSize: const Size(AppSizes.minTouch, AppSizes.minTouch),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xs,
+          ),
+          textStyle: AppType.label.copyWith(
             decoration: TextDecoration.underline,
           ),
         ),
@@ -457,13 +446,11 @@ class _SeparadorO extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
           child: Text(
             'o',
-            style: TextStyle(
+            style: AppType.label.copyWith(
               color: AppColors.onGreen.withValues(alpha: 0.75),
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -497,7 +484,7 @@ class _BotonDoctorSecundario extends StatelessWidget {
         color: AppColors.surface,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadii.button),
           side: BorderSide(
             color: AppColors.primaryStrong.withValues(alpha: 0.45),
             width: 1.5,
@@ -506,35 +493,38 @@ class _BotonDoctorSecundario extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 72),
+            constraints: const BoxConstraints(
+              minHeight: AppSpacing.xxl + AppSpacing.md,
+            ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
               child: Row(
                 children: [
                   const Icon(
                     Icons.medical_services,
-                    size: 30,
+                    size: AppSizes.iconLarge,
                     color: AppColors.accent,
                   ),
-                  const SizedBox(width: 16),
-                  const Expanded(
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           'Doctor',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                          style: AppType.button.copyWith(
                             color: AppColors.onGreen,
                           ),
                         ),
                         Text(
                           'Cuido a mis pacientes',
-                          style: TextStyle(
-                            fontSize: 14,
+                          style: AppType.label.copyWith(
                             color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w400,
                           ),
                         ),
                       ],
@@ -542,7 +532,7 @@ class _BotonDoctorSecundario extends StatelessWidget {
                   ),
                   const Icon(
                     Icons.chevron_right,
-                    size: 22,
+                    size: AppSizes.icon,
                     color: AppColors.textSecondary,
                   ),
                 ],
@@ -579,22 +569,26 @@ class _BotonRol extends StatelessWidget {
       child: SizedBox(
         width: double.infinity,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 100),
+          constraints: const BoxConstraints(minHeight: AppSpacing.xxl * 2),
           child: Material(
             color: AppColors.surface,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(AppRadii.card),
             child: InkWell(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(AppRadii.card),
               onTap: onTap,
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
                 ),
                 child: Row(
                   children: [
-                    Icon(icono, size: 48, color: AppColors.accent),
-                    const SizedBox(width: 20),
+                    Icon(
+                      icono,
+                      size: AppSizes.iconXLarge,
+                      color: AppColors.accent,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -603,17 +597,14 @@ class _BotonRol extends StatelessWidget {
                           Text(
                             titulo,
                             maxLines: 2,
-                            style: const TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.bold,
+                            style: AppType.title.copyWith(
                               color: AppColors.onGreen,
                             ),
                           ),
                           Text(
                             descripcion,
                             maxLines: 2,
-                            style: const TextStyle(
-                              fontSize: 16,
+                            style: AppType.body.copyWith(
                               color: AppColors.textSecondary,
                             ),
                           ),

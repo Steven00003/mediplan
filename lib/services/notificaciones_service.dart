@@ -5,7 +5,9 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/tratamiento.dart';
+import '../utils/guard_rearme.dart';
 import '../utils/hash_estable.dart';
+import '../utils/rearme_alarmas.dart';
 import '../utils/ventana_alarmas.dart';
 import '../utils/vigencia_tratamiento.dart';
 import 'diagnostico_service.dart';
@@ -35,6 +37,9 @@ class NotificacionesService {
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
+
+  /// Impide que dos rearmes (tick, reingreso, edición) se solapen.
+  final GuardRearme _guardRearme = GuardRearme();
 
   /// Payload de la última alarma tocada, pendiente de que la app termine de
   /// arrancar y `AppState` sepa qué paciente está vinculado.
@@ -723,37 +728,50 @@ class NotificacionesService {
       duracionDias: duracionDias,
     );
     for (final ocurrencia in ocurrencias) {
-      final cuando = tz.TZDateTime.from(ocurrencia.horaProgramada, tz.local);
-      await _plugin.zonedSchedule(
-        ocurrencia.id,
-        'Hora de tu medicina',
-        '$nombreMedicamento - Hora de tomarla',
-        cuando,
-        const NotificationDetails(
-          android: _channel,
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentSound: true,
-            presentBadge: true,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.alarmClock,
-        payload: '$tratamientoId|${ocurrencia.hora}',
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
-      await _guardarProgramacion(
-        id: ocurrencia.id,
-        tipo: 'principal_puntual',
+      await _programarOcurrencia(
         tratamientoId: tratamientoId,
-        hora: ocurrencia.hora,
-        dia: ocurrencia.horaProgramada.weekday,
-        modo: AndroidScheduleMode.alarmClock,
-        proxima: ocurrencia.horaProgramada,
-        semanal: false,
+        nombreMedicamento: nombreMedicamento,
+        ocurrencia: ocurrencia,
       );
     }
     return ocurrencias.length;
+  }
+
+  /// Agenda una sola ocurrencia puntual y guarda su metadato de diagnóstico.
+  Future<void> _programarOcurrencia({
+    required String tratamientoId,
+    required String nombreMedicamento,
+    required OcurrenciaAlarma ocurrencia,
+  }) async {
+    final cuando = tz.TZDateTime.from(ocurrencia.horaProgramada, tz.local);
+    await _plugin.zonedSchedule(
+      ocurrencia.id,
+      'Hora de tu medicina',
+      '$nombreMedicamento - Hora de tomarla',
+      cuando,
+      const NotificationDetails(
+        android: _channel,
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+          presentBadge: true,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
+      payload: '$tratamientoId|${ocurrencia.hora}',
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+    await _guardarProgramacion(
+      id: ocurrencia.id,
+      tipo: 'principal_puntual',
+      tratamientoId: tratamientoId,
+      hora: ocurrencia.hora,
+      dia: ocurrencia.horaProgramada.weekday,
+      modo: AndroidScheduleMode.alarmClock,
+      proxima: ocurrencia.horaProgramada,
+      semanal: false,
+    );
   }
 
   /// Próxima fecha local en que ese día de la semana cae a esa hora.
@@ -859,12 +877,49 @@ class NotificacionesService {
     );
   }
 
+  /// Indica si falta al menos una ocurrencia puntual esperada.
+  ///
+  /// Es la comprobación barata que usa el tick de 60 s para decidir si hace
+  /// falta rearmar. No cancela ni programa nada.
+  Future<bool> hayOcurrenciasFaltantes({
+    required List<Tratamiento> tratamientos,
+    DateTime? ahora,
+  }) async {
+    final referencia = ahora ?? DateTime.now();
+    final esperadas = <int>{};
+    for (final tratamiento in tratamientos) {
+      if (!VigenciaTratamiento.estaVigente(tratamiento, referencia)) continue;
+      final ocurrencias = VentanaAlarmas.ocurrencias(
+        tratamientoId: tratamiento.id,
+        horarios: tratamiento.horarios,
+        ahora: referencia,
+        fechaInicio: tratamiento.fechaInicio,
+        duracionDias: tratamiento.duracionDias,
+      );
+      esperadas.addAll(ocurrencias.map((o) => o.id));
+    }
+    if (esperadas.isEmpty) return false;
+
+    try {
+      final pendientes = await _plugin.pendingNotificationRequests();
+      final ids = pendientes.map((p) => p.id).toSet();
+      return esperadas.any((id) => !ids.contains(id));
+    } catch (_) {
+      // Si no se puede comprobar, es mejor intentar el rearme que dejar la
+      // ventana sin alarmas.
+      return true;
+    }
+  }
+
   /// Rearma la ventana móvil de alarmas puntuales de [tratamientos].
   ///
-  /// Cancela primero las alarmas puntuales y semanales antiguas de cada
-  /// tratamiento y después agenda las ocurrencias de los próximos 7 días que
-  /// caigan dentro de su vigencia. Devuelve cuántas alarmas puntuales quedaron
-  /// programadas y registra el rearme para la pantalla de diagnóstico.
+  /// Compara las ocurrencias deseadas con las que Android tiene pendientes y
+  /// solo cancela las que sobran y programa las que faltan. Las que ya
+  /// coinciden no se tocan, y las que están a menos de 90 s o dispararon hace
+  /// menos de 2 min quedan protegidas.
+  ///
+  /// Devuelve cuántas ocurrencias se programaron y registra el total esperado
+  /// para la pantalla de diagnóstico.
   ///
   /// Los avisos previos y recordatorios tardíos no se tocan aquí: siguen siendo
   /// notificaciones semanales independientes.
@@ -872,36 +927,211 @@ class NotificacionesService {
     required List<Tratamiento> tratamientos,
     DateTime? ahora,
   }) async {
+    if (!_guardRearme.entrar()) return 0;
     final referencia = ahora ?? DateTime.now();
-    var cantidad = 0;
+    try {
+      final pendientes = await _plugin.pendingNotificationRequests();
+      final pendientesIds = pendientes.map((p) => p.id).toSet();
+      final programaciones = await DiagnosticoService().obtenerProgramaciones();
+      final metaPorId = <int, ProgramacionAlarma>{
+        for (final p in programaciones) p.id: p,
+      };
+      final tratamientosPorId = <String, Tratamiento>{
+        for (final t in tratamientos) t.id: t,
+      };
 
-    for (final tratamiento in tratamientos) {
-      await cancelarAlarmasDeTratamiento(
-        tratamientoId: tratamiento.id,
-        horarios: tratamiento.horarios,
-        ahora: referencia,
-        incluirPosponer: false,
-      );
-      if (!VigenciaTratamiento.estaVigente(tratamiento, referencia)) {
-        continue;
-      }
-      for (final horario in tratamiento.horarios) {
-        cantidad += await programarAlarmasDeHorario(
+      final deseadas = <OcurrenciaAlarma>[];
+      final deseadasIds = <int>{};
+      final candidatosPorTratamiento = <String, Map<int, DateTime>>{};
+
+      for (final tratamiento in tratamientos) {
+        // Mapa de ids puntuales de los últimos 2 minutos y los próximos días:
+        // sirve para reconstruir la hora de una pendiente aunque su metadato
+        // local ya no exista.
+        final candidatos = VentanaAlarmas.ocurrenciasEnRango(
           tratamientoId: tratamiento.id,
-          horario: horario,
-          nombreMedicamento: tratamiento.nombreMedicamento,
+          horarios: tratamiento.horarios,
+          desde: referencia.subtract(CalculadoraRearme.margenRecienDisparada),
+          hasta: referencia.add(
+            const Duration(days: VentanaAlarmas.diasVentana + 1),
+          ),
+          respetarVigencia: false,
+        );
+        candidatosPorTratamiento[tratamiento.id] = {
+          for (final o in candidatos) o.id: o.horaProgramada,
+        };
+
+        if (!VigenciaTratamiento.estaVigente(tratamiento, referencia)) {
+          continue;
+        }
+        final ocurrencias = VentanaAlarmas.ocurrencias(
+          tratamientoId: tratamiento.id,
+          horarios: tratamiento.horarios,
+          ahora: referencia,
           fechaInicio: tratamiento.fechaInicio,
           duracionDias: tratamiento.duracionDias,
-          ahora: referencia,
+        );
+        for (final ocurrencia in ocurrencias) {
+          if (deseadasIds.add(ocurrencia.id)) deseadas.add(ocurrencia);
+        }
+      }
+
+      final actuales = <AlarmaActual>[];
+      final actualesIds = <int>{};
+
+      // Alarmas puntuales realmente pendientes.
+      for (final pendiente in pendientes) {
+        if (pendiente.id < VentanaAlarmas.minIdAlarmaPuntual ||
+            pendiente.id > VentanaAlarmas.maxIdAlarmaPuntual) {
+          continue;
+        }
+        final meta = metaPorId[pendiente.id];
+        final tratamientoId =
+            meta?.tratamientoId ?? _tratamientoIdDePayload(pendiente.payload);
+        if (tratamientoId == null ||
+            !tratamientosPorId.containsKey(tratamientoId)) {
+          continue;
+        }
+        final hora =
+            meta?.proxima ??
+            candidatosPorTratamiento[tratamientoId]?[pendiente.id];
+        if (actualesIds.add(pendiente.id)) {
+          actuales.add(AlarmaActual(id: pendiente.id, hora: hora));
+        }
+      }
+
+      // Alarmas semanales antiguas y ids de la versión anterior.
+      for (final tratamiento in tratamientos) {
+        for (final horario in tratamiento.horarios) {
+          for (final dia in horario.dias) {
+            final idViejo = idDeAlarma(tratamiento.id, horario.hora, dia);
+            if (!pendientesIds.contains(idViejo) ||
+                !actualesIds.add(idViejo)) {
+              continue;
+            }
+            actuales.add(
+              AlarmaActual(
+                id: idViejo,
+                hora: _horaSemanalParaProteccion(
+                  horario.hora,
+                  dia,
+                  referencia,
+                ),
+              ),
+            );
+          }
+        }
+        for (var i = 0; i < tratamiento.horarios.length; i++) {
+          final idAntiguo = (tratamiento.id.hashCode ^ i) & 0x7FFFFFFF;
+          if (idAntiguo < 1 ||
+              !pendientesIds.contains(idAntiguo) ||
+              !actualesIds.add(idAntiguo)) {
+            continue;
+          }
+          actuales.add(
+            AlarmaActual(
+              id: idAntiguo,
+              hora: _horaHorarioParaProteccion(
+                tratamiento.horarios[i],
+                referencia,
+              ),
+            ),
+          );
+        }
+      }
+
+      final plan = CalculadoraRearme.calcular(
+        deseadas: deseadas,
+        actuales: actuales,
+        ahora: referencia,
+      );
+
+      for (final id in plan.cancelar) {
+        await _plugin.cancel(id);
+        await _olvidarProgramacion(id);
+      }
+
+      for (final ocurrencia in plan.programar) {
+        final tratamiento = tratamientosPorId[ocurrencia.tratamientoId];
+        if (tratamiento == null) continue;
+        await _programarOcurrencia(
+          tratamientoId: tratamiento.id,
+          nombreMedicamento: tratamiento.nombreMedicamento,
+          ocurrencia: ocurrencia,
         );
       }
-    }
 
-    await DiagnosticoService().registrarRearme(
-      cantidad: cantidad,
-      tratamientos: tratamientos.length,
-    );
-    return cantidad;
+      await DiagnosticoService().registrarRearme(
+        cantidad: deseadas.length,
+        tratamientos: tratamientos.length,
+      );
+      return plan.programar.length;
+    } finally {
+      _guardRearme.salir();
+    }
+  }
+
+  String? _tratamientoIdDePayload(String? payload) {
+    if (payload == null || payload.isEmpty) return null;
+    final partes = payload.split('|');
+    if (partes.length != 2) return null;
+    final id = partes[0].trim();
+    return id.isEmpty ? null : id;
+  }
+
+  DateTime? _proximaOcurrenciaSemanal(
+    String hora,
+    int dia,
+    DateTime ahora,
+  ) {
+    final partes = hora.split(':');
+    if (partes.length != 2) return null;
+    final h = int.tryParse(partes[0]);
+    final m = int.tryParse(partes[1]);
+    if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) {
+      return null;
+    }
+    var cuando = DateTime(ahora.year, ahora.month, ahora.day, h, m);
+    while (cuando.weekday != dia || !cuando.isAfter(ahora)) {
+      cuando = cuando.add(const Duration(days: 1));
+    }
+    return cuando;
+  }
+
+  /// Hora que representa una alarma semanal para el guard de protección.
+  ///
+  /// Si la repetición anterior fue hace menos de 2 min, devuelve esa hora para
+  /// no cancelar/dismissar una notificación que acaba de sonar. Si no, devuelve
+  /// la próxima (que puede estar a menos de 90 s).
+  DateTime? _horaSemanalParaProteccion(
+    String hora,
+    int dia,
+    DateTime ahora,
+  ) {
+    final proxima = _proximaOcurrenciaSemanal(hora, dia, ahora);
+    if (proxima == null) return null;
+    final anterior = proxima.subtract(const Duration(days: 7));
+    final limite = ahora.subtract(CalculadoraRearme.margenRecienDisparada);
+    if (anterior.isBefore(ahora) && !anterior.isBefore(limite)) {
+      return anterior;
+    }
+    return proxima;
+  }
+
+  DateTime? _horaHorarioParaProteccion(HorarioDia horario, DateTime ahora) {
+    DateTime? proxima;
+    DateTime? reciente;
+    for (final dia in horario.dias) {
+      final cuando = _proximaOcurrenciaSemanal(horario.hora, dia, ahora);
+      if (cuando == null) continue;
+      if (proxima == null || cuando.isBefore(proxima)) proxima = cuando;
+      final anterior = cuando.subtract(const Duration(days: 7));
+      final limite = ahora.subtract(CalculadoraRearme.margenRecienDisparada);
+      if (anterior.isBefore(ahora) && !anterior.isBefore(limite)) {
+        if (reciente == null || anterior.isAfter(reciente)) reciente = anterior;
+      }
+    }
+    return reciente ?? proxima;
   }
 
   /// Aviso suave 5 minutos antes de cada toma.

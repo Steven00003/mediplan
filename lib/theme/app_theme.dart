@@ -1,77 +1,90 @@
 import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
+import 'app_tokens.dart';
 
-/// `ThemeData` de la app: define UNA vez colores de botones, appBar, campos,
-/// tarjetas y snackbars para que las pantallas los hereden sin tener que
-/// hardcodear nada.
+/// `ThemeData` de la app: define UNA vez colores, espaciado, radios, elevaciones
+/// y tipografía para que las pantallas los hereden sin hardcodear nada.
 ThemeData buildAppTheme() {
   final base = ThemeData(
     useMaterial3: true,
     colorScheme: AppColors.colorScheme,
   );
 
-  final borde = OutlineInputBorder(
-    borderRadius: BorderRadius.circular(12),
+  final bordeCampo = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(AppRadii.field),
     borderSide: const BorderSide(color: AppColors.border),
   );
 
   return base.copyWith(
     scaffoldBackgroundColor: AppColors.background,
 
-    appBarTheme: const AppBarTheme(
+    appBarTheme: AppBarTheme(
       backgroundColor: AppColors.primary,
       foregroundColor: AppColors.onGreen,
-      elevation: 0,
+      elevation: AppElevations.none,
       centerTitle: false,
+      toolbarHeight: AppSizes.appBar,
+      titleTextStyle: AppType.title.copyWith(color: AppColors.onGreen),
     ),
 
-    // Acción principal: verde accent con texto blanco.
+    // Acción principal: verde oscuro con texto blanco para cumplir AA.
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.accent,
+        backgroundColor: AppColors.primaryStrong,
         foregroundColor: AppColors.onAccent,
-        elevation: 0,
-        minimumSize: const Size(0, 52),
+        disabledBackgroundColor: AppColors.border,
+        disabledForegroundColor: AppColors.textSecondary,
+        elevation: AppElevations.none,
+        minimumSize: const Size(0, AppSizes.button),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadii.button),
         ),
-        textStyle: const TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
+        textStyle: AppType.button,
       ),
     ),
 
-    // Acción secundaria: verde claro con texto e ícono oscuros (el blanco sobre
-    // `#A8E6B0` no alcanzaría contraste).
+    // Acción secundaria: superficie clara con borde visible.
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        backgroundColor: AppColors.primary,
+        backgroundColor: AppColors.surface,
         foregroundColor: AppColors.onGreen,
-        minimumSize: const Size(0, 48),
+        minimumSize: const Size(0, AppSizes.button),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
         side: const BorderSide(color: AppColors.accent, width: 1.5),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadii.button),
         ),
+        textStyle: AppType.button,
       ),
     ),
 
     textButtonTheme: TextButtonThemeData(
-      style: TextButton.styleFrom(foregroundColor: AppColors.accent),
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.primaryStrong,
+        minimumSize: const Size(AppSizes.minTouch, AppSizes.minTouch),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        textStyle: AppType.label,
+      ),
     ),
 
     floatingActionButtonTheme: const FloatingActionButtonThemeData(
-      backgroundColor: AppColors.accent,
+      backgroundColor: AppColors.primaryStrong,
       foregroundColor: AppColors.onAccent,
+      elevation: AppElevations.medium,
     ),
 
     cardTheme: CardThemeData(
       color: AppColors.surface,
-      elevation: 0,
+      elevation: AppElevations.none,
       margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppRadii.card),
         side: const BorderSide(color: AppColors.border),
       ),
     ),
@@ -85,57 +98,96 @@ ThemeData buildAppTheme() {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: AppColors.surface,
-      border: borde,
-      enabledBorder: borde,
-      focusedBorder: borde.copyWith(
-        borderSide: const BorderSide(color: AppColors.accent, width: 2),
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.sm,
       ),
-      errorBorder: borde.copyWith(
+      border: bordeCampo,
+      enabledBorder: bordeCampo,
+      focusedBorder: bordeCampo.copyWith(
+        borderSide: const BorderSide(color: AppColors.primaryStrong, width: 2),
+      ),
+      errorBorder: bordeCampo.copyWith(
         borderSide: const BorderSide(color: AppColors.error, width: 1.5),
       ),
-      focusedErrorBorder: borde.copyWith(
+      focusedErrorBorder: bordeCampo.copyWith(
         borderSide: const BorderSide(color: AppColors.error, width: 2),
       ),
       prefixIconColor: AppColors.textSecondary,
-      labelStyle: const TextStyle(color: AppColors.textSecondary),
-      hintStyle: const TextStyle(color: AppColors.textSecondary),
-      helperStyle: const TextStyle(color: AppColors.textSecondary),
+      suffixIconColor: AppColors.textSecondary,
+      labelStyle: AppType.body.copyWith(color: AppColors.textSecondary),
+      floatingLabelStyle: AppType.label.copyWith(
+        color: AppColors.primaryStrong,
+      ),
+      hintStyle: AppType.body.copyWith(color: AppColors.textSecondary),
+      helperStyle: AppType.label.copyWith(color: AppColors.textSecondary),
+      errorStyle: AppType.label.copyWith(color: AppColors.error),
+      errorMaxLines: 2,
     ),
 
     snackBarTheme: SnackBarThemeData(
       backgroundColor: AppColors.onGreen,
-      contentTextStyle: const TextStyle(color: AppColors.onAccent),
+      contentTextStyle: AppType.body.copyWith(color: AppColors.onAccent),
+      actionTextColor: AppColors.primary,
       behavior: SnackBarBehavior.floating,
+      elevation: AppElevations.medium,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadii.button),
       ),
     ),
 
-    textTheme: base.textTheme.apply(
-      bodyColor: AppColors.onGreen,
-      displayColor: AppColors.onGreen,
-    ).copyWith(
-      // Tipografía grande y clara para el rol paciente. (Ningún widget consume
-      // este slot hoy; se deja alineado al fondo claro para que, si alguien lo
-      // usa, no quede texto blanco sobre verde claro.)
-      displayLarge: const TextStyle(
-        fontSize: 48,
+    dialogTheme: DialogThemeData(
+      backgroundColor: AppColors.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: AppElevations.high,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadii.dialog),
+      ),
+      titleTextStyle: AppType.title.copyWith(color: AppColors.onGreen),
+      contentTextStyle: AppType.body.copyWith(color: AppColors.onGreen),
+    ),
+
+    bottomNavigationBarTheme: BottomNavigationBarThemeData(
+      backgroundColor: AppColors.surface,
+      selectedItemColor: AppColors.primaryStrong,
+      unselectedItemColor: AppColors.textSecondary,
+      elevation: AppElevations.none,
+      type: BottomNavigationBarType.fixed,
+      selectedIconTheme: const IconThemeData(
+        size: AppSizes.iconLarge,
+        color: AppColors.primaryStrong,
+      ),
+      unselectedIconTheme: const IconThemeData(
+        size: AppSizes.iconLarge,
+        color: AppColors.textSecondary,
+      ),
+      selectedLabelStyle: AppType.label.copyWith(
+        color: AppColors.primaryStrong,
         fontWeight: FontWeight.bold,
-        color: AppColors.onGreen,
       ),
-      titleMedium: const TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.bold,
-        color: AppColors.onGreen,
-      ),
-      bodyMedium: const TextStyle(
-        fontSize: 16,
-        color: AppColors.onGreen,
-      ),
-      bodySmall: const TextStyle(
-        fontSize: 14,
+      unselectedLabelStyle: AppType.label.copyWith(
         color: AppColors.textSecondary,
       ),
     ),
+
+    textTheme: base.textTheme
+        .apply(bodyColor: AppColors.onGreen, displayColor: AppColors.onGreen)
+        .copyWith(
+          displayLarge: AppType.display.copyWith(color: AppColors.onGreen),
+          headlineMedium: AppType.display.copyWith(color: AppColors.onGreen),
+          titleLarge: AppType.title.copyWith(color: AppColors.onGreen),
+          bodyLarge: AppType.body.copyWith(color: AppColors.onGreen),
+          bodyMedium: AppType.body.copyWith(color: AppColors.onGreen),
+          bodySmall: AppType.label.copyWith(
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w400,
+          ),
+          labelLarge: AppType.label.copyWith(color: AppColors.onGreen),
+          labelMedium: AppType.label.copyWith(
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
   );
 }

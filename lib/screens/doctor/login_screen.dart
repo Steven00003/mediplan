@@ -1,10 +1,13 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/local_store.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/errores_amigables.dart';
+import '../../widgets/boton_cargando.dart';
+import '../../widgets/snackbars.dart';
 
 /// Pantalla de bienvenida y login del Cuidador/Doctor.
 /// Acceso con correo/contraseña y con Google, más registro de cuenta.
@@ -16,7 +19,10 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final AuthService _auth = AuthService();
+  // Se crea al primer uso para que el widget se pueda montar en pruebas sin
+  // inicializar Firebase.
+  AuthService? _authCache;
+  AuthService get _auth => _authCache ??= AuthService();
 
   final _formKey = GlobalKey<FormState>();
   final _nombreController = TextEditingController();
@@ -36,6 +42,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _enviar() async {
+    if (_cargando) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _cargando = true;
@@ -49,16 +56,13 @@ class _LoginScreenState extends State<LoginScreen> {
           _contrasenaController.text,
         );
         await _auth.guardarPerfilUsuario(nombre: _nombreController.text.trim());
-        if (kDebugMode) {
-          debugPrint('Cuenta creada');
-        }
       } else {
         await _auth.iniciarSesion(
           _correoController.text.trim(),
           _contrasenaController.text,
         );
       }
-      // Alectar: el StreamBuilder de HomeRouter reacciona al cambio de auth.
+      // Al iniciar sesión: el StreamBuilder de HomeRouter reacciona al cambio de auth.
       // Un login de cuidador exitoso limpia el flag/LocalStore de paciente que
       // hubiera quedado en este dispositivo. No usamos AppState: las rutas
       // abiertas con Navigator.push no ven su provider.
@@ -67,21 +71,20 @@ class _LoginScreenState extends State<LoginScreen> {
         if (mounted) Navigator.of(context).pop();
       }
     } on FirebaseAuthException catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error login: ${e.code}');
-      }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error login: ${e.code}')),
+        mostrarSnackError(
+          context,
+          mensajeErrorAmigable(e, contexto: 'Error de autenticación'),
         );
       }
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error login: $e');
-      }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error login: $e')),
+        mostrarSnackError(
+          context,
+          mensajeErrorAmigable(
+            e,
+            contexto: 'Error inesperado al iniciar sesión',
+          ),
         );
       }
     } finally {
@@ -90,6 +93,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _google() async {
+    if (_cargando) return;
     setState(() {
       _cargando = true;
       _error = null;
@@ -104,21 +108,20 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
     } on FirebaseAuthException catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error login: ${e.code}');
-      }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error login: ${e.code}')),
+        mostrarSnackError(
+          context,
+          mensajeErrorAmigable(
+            e,
+            contexto: 'Error de autenticación con Google',
+          ),
         );
       }
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error login: $e');
-      }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error login: $e')),
+        mostrarSnackError(
+          context,
+          mensajeErrorAmigable(e, contexto: 'Error inesperado con Google'),
         );
       }
     } finally {
@@ -133,162 +136,130 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(AppSpacing.md),
             child: Column(
               children: [
-                const Icon(Icons.medical_services_rounded,
-                    size: 72, color: AppColors.accent),
-                const SizedBox(height: 8),
-                const Text(
-                  'Welcome back',
-                  style: TextStyle(
-                    color: AppColors.onGreen,
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
-                  ),
+                const Icon(
+                  Icons.medical_services_rounded,
+                  size: AppSizes.iconXLarge + AppSizes.icon,
+                  color: AppColors.accent,
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Welcome back',
+                  style: AppType.display.copyWith(color: AppColors.onGreen),
+                ),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   _esRegistro ? 'Crea tu cuenta de doctor' : 'Inicia sesión',
-                  style: const TextStyle(
-                    color: AppColors.onGreen,
-                    fontSize: 16,
-                  ),
+                  style: AppType.body.copyWith(color: AppColors.onGreen),
                 ),
-                const SizedBox(height: 28),
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      children: [
-                        if (_esRegistro) ...[
-                          TextFormField(
-                            controller: _nombreController,
-                            decoration: const InputDecoration(
-                              labelText: 'Nombre',
-                              prefixIcon: Icon(Icons.person_outline),
+                const SizedBox(height: AppSpacing.md),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        children: [
+                          if (_esRegistro) ...[
+                            TextFormField(
+                              controller: _nombreController,
+                              decoration: const InputDecoration(
+                                labelText: 'Nombre',
+                                prefixIcon: Icon(Icons.person_outline),
+                              ),
+                              validator: (v) => (v == null || v.trim().isEmpty)
+                                  ? 'Ingresa tu nombre'
+                                  : null,
                             ),
-                            validator: (v) => (v == null || v.trim().isEmpty)
-                                ? 'Ingresa tu nombre'
+                            const SizedBox(height: AppSpacing.sm),
+                          ],
+                          TextFormField(
+                            controller: _correoController,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: const InputDecoration(
+                              labelText: 'Correo',
+                              prefixIcon: Icon(Icons.email_outlined),
+                            ),
+                            validator: (v) => (v == null || !v.contains('@'))
+                                ? 'Correo inválido'
                                 : null,
                           ),
-                          const SizedBox(height: 12),
-                        ],
-                        TextFormField(
-                          controller: _correoController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(
-                            labelText: 'Correo',
-                            prefixIcon: Icon(Icons.email_outlined),
-                          ),
-                          validator: (v) =>
-                              (v == null || !v.contains('@'))
-                                  ? 'Correo inválido'
-                                  : null,
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _contrasenaController,
-                          obscureText: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Contraseña',
-                            prefixIcon: Icon(Icons.lock_outline),
-                          ),
-                          validator: (v) => (v == null || v.length < 6)
-                              ? 'Mínimo 6 caracteres'
-                              : null,
-                        ),
-                        if (_error != null) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            _error!,
-                            style: TextStyle(
-                              color: AppColors.error,
-                              fontSize: 14,
+                          const SizedBox(height: AppSpacing.sm),
+                          TextFormField(
+                            controller: _contrasenaController,
+                            obscureText: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Contraseña',
+                              prefixIcon: Icon(Icons.lock_outline),
                             ),
-                            textAlign: TextAlign.center,
+                            validator: (v) => (v == null || v.length < 6)
+                                ? 'Mínimo 6 caracteres'
+                                : null,
                           ),
-                        ],
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 52,
-                          child: ElevatedButton(
-                            onPressed: _cargando ? null : _enviar,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.accent,
-                              foregroundColor: AppColors.onAccent,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                          if (_error != null) ...[
+                            const SizedBox(height: AppSpacing.sm),
+                            Text(
+                              _error!,
+                              style: AppType.label.copyWith(
+                                color: AppColors.error,
                               ),
+                              textAlign: TextAlign.center,
                             ),
-                            child: _cargando
-                                ? const SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: AppColors.onAccent,
-                                    ),
-                                  )
-                                : Text(
-                                    _esRegistro ? 'Registrarme' : 'Entrar',
-                                    style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold),
-                                  ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            const Expanded(child: Divider()),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 12),
-                              child: Text('o'),
-                            ),
-                            const Expanded(child: Divider()),
                           ],
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 52,
-                          child: OutlinedButton.icon(
-                            onPressed: _cargando ? null : _google,
-                            icon: const Icon(Icons.g_mobiledata, size: 30),
-                            label: const Text(
-                              'Continuar con Google',
-                              style: TextStyle(fontSize: 16),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                          const SizedBox(height: AppSpacing.md),
+                          BotonCargando(
+                            cargando: _cargando,
+                            onPressed: _enviar,
+                            texto: _esRegistro ? 'Registrarme' : 'Entrar',
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Row(
+                            children: [
+                              const Expanded(child: Divider()),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.sm,
+                                ),
+                                child: Text(
+                                  'o',
+                                  style: AppType.label.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
                               ),
+                              const Expanded(child: Divider()),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _cargando ? null : _google,
+                              icon: const Icon(
+                                Icons.g_mobiledata,
+                                size: AppSizes.iconLarge,
+                              ),
+                              label: const Text('Continuar con Google'),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextButton(
-                          onPressed: () {
-                            setState(() {
-                              _esRegistro = !_esRegistro;
-                              _error = null;
-                            });
-                          },
-                          child: Text(
-                            _esRegistro
-                                ? 'Ya tengo cuenta'
-                                : '¿No tienes cuenta? Regístrate',
-                            style: const TextStyle(fontSize: 15),
+                          const SizedBox(height: AppSpacing.xs),
+                          TextButton(
+                            onPressed: () {
+                              setState(() {
+                                _esRegistro = !_esRegistro;
+                                _error = null;
+                              });
+                            },
+                            child: Text(
+                              _esRegistro
+                                  ? 'Ya tengo cuenta'
+                                  : '¿No tienes cuenta? Regístrate',
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
