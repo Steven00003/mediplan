@@ -24,7 +24,7 @@ import '../../utils/reporte_estado_dispositivo.dart';
 import '../../utils/telefono_emergencia.dart';
 import '../../widgets/avatar_paciente.dart';
 import '../../widgets/banner_sin_conexion.dart';
-import '../../widgets/boton_cargando.dart';
+
 import '../../widgets/dialogo_accion_delicada.dart';
 import '../../widgets/estados.dart';
 import '../../widgets/snackbars.dart';
@@ -156,12 +156,10 @@ class _DetalleBodyState extends State<_DetalleBody> {
               children: [
                 _FichaPaciente(paciente: paciente),
                 const SizedBox(height: AppSpacing.sm),
-                _CardCodigo(paciente: paciente, vinculado: vinculado),
+                CardCodigoVinculacion(paciente: paciente, vinculado: vinculado),
                 if (vinculado) ...[
                   const SizedBox(height: AppSpacing.xs),
                   _CardCelularPaciente(estado: paciente.estadoDispositivo),
-                  const SizedBox(height: AppSpacing.xs),
-                  _BtnDesvincular(paciente: paciente),
                 ],
               ],
             ),
@@ -217,8 +215,17 @@ class _PestanaHorarioState extends State<_PestanaHorario> {
 
   @override
   Widget build(BuildContext context) {
+    // Deja espacio para el botón flotante "Nuevo medicamento" (56 dp) más
+    // 24 dp de separación y el área segura inferior, para que la última tarjeta
+    // no quede tapada al hacer scroll hasta el final.
+    final paddingInferior = 56.0 + 24.0 + MediaQuery.of(context).padding.bottom;
     return ListView(
-      padding: const EdgeInsets.all(AppSpacing.sm),
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.sm,
+        AppSpacing.sm,
+        AppSpacing.sm,
+        AppSpacing.sm + paddingInferior,
+      ),
       children: [
         _AvisoSinTomas(pacienteId: paciente.id),
         Text(
@@ -832,13 +839,9 @@ class _BtnDesvincular extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton.icon(
+    return TextButton.icon(
       onPressed: () => _confirmar(context),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.error,
-        side: BorderSide(color: AppColors.error),
-        minimumSize: const Size.fromHeight(48),
-      ),
+      style: TextButton.styleFrom(foregroundColor: AppColors.error),
       icon: const Icon(Icons.link_off),
       label: const Text('Desvincular dispositivo'),
     );
@@ -989,16 +992,16 @@ class _FichaPaciente extends StatelessWidget {
   }
 }
 
-class _CardCodigo extends StatefulWidget {
+class CardCodigoVinculacion extends StatefulWidget {
   final Paciente paciente;
   final bool vinculado;
-  const _CardCodigo({required this.paciente, required this.vinculado});
+  const CardCodigoVinculacion({super.key, required this.paciente, required this.vinculado});
 
   @override
-  State<_CardCodigo> createState() => _CardCodigoState();
+  State<CardCodigoVinculacion> createState() => CardCodigoVinculacionState();
 }
 
-class _CardCodigoState extends State<_CardCodigo> {
+class CardCodigoVinculacionState extends State<CardCodigoVinculacion> {
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _vinculo;
   bool _generando = false;
 
@@ -1011,7 +1014,7 @@ class _CardCodigoState extends State<_CardCodigo> {
   }
 
   @override
-  void didUpdateWidget(covariant _CardCodigo oldWidget) {
+  void didUpdateWidget(covariant CardCodigoVinculacion oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.paciente.codigoVinculacion !=
         widget.paciente.codigoVinculacion) {
@@ -1021,12 +1024,20 @@ class _CardCodigoState extends State<_CardCodigo> {
 
   void _escucharVinculo() {
     final codigo = _codigo;
-    _vinculo = codigo.isEmpty
-        ? null
-        : FirebaseFirestore.instance
-              .collection('vinculos')
-              .doc(codigo)
-              .snapshots();
+    if (codigo.isEmpty) {
+      _vinculo = null;
+      return;
+    }
+    try {
+      _vinculo = FirebaseFirestore.instance
+          .collection('vinculos')
+          .doc(codigo)
+          .snapshots();
+    } catch (_) {
+      // En entornos sin Firebase inicializado (p. ej. pruebas de widget) el
+      // stream no se puede abrir; se muestra "Sin vencimiento" en su lugar.
+      _vinculo = null;
+    }
   }
 
   Future<void> _copiar() async {
@@ -1071,98 +1082,91 @@ class _CardCodigoState extends State<_CardCodigo> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.vinculado) {
+      // Estado compacto y colapsado por defecto: el código y el vencimiento
+      // dejan de ocupar espacio cuando el dispositivo ya está vinculado.
+      return Card(
+        color: AppColors.primary,
+        child: ExpansionTile(
+          leading: const Icon(Icons.link, color: AppColors.accent),
+          title: const Text(
+            'Dispositivo vinculado',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: _BtnDesvincular(paciente: widget.paciente),
+            ),
+          ],
+        ),
+      );
+    }
+
     final codigo = _codigo;
     return Card(
       color: AppColors.primary,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.sm),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(
-                  widget.vinculado ? Icons.link : Icons.link_off,
-                  color: widget.vinculado
-                      ? AppColors.accent
-                      : AppColors.warning,
-                ),
+                const Icon(Icons.link_off, color: AppColors.warning),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    widget.vinculado
-                        ? 'Dispositivo vinculado'
-                        : 'Código para unirse',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    'Código de vinculación',
+                    style: AppType.label.copyWith(color: AppColors.onGreen),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'Código de vinculación',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.accent),
-              ),
-              child: Text(
-                codigo.isEmpty ? 'Sin código' : codigo,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 28,
-                  letterSpacing: 2,
-                  fontWeight: FontWeight.bold,
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    codigo.isEmpty ? 'Sin código' : codigo,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 28,
+                      letterSpacing: 2,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.onGreen,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Copiar código',
+                  onPressed: codigo.isEmpty ? null : _copiar,
+                  icon: const Icon(Icons.copy),
                   color: AppColors.onGreen,
                 ),
-              ),
+              ],
             ),
-            const SizedBox(height: 8),
             _vencimiento(),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: codigo.isEmpty ? null : _copiar,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.onGreen,
-                  side: const BorderSide(color: AppColors.accent),
-                  minimumSize: const Size.fromHeight(48),
-                ),
-                icon: const Icon(Icons.copy),
-                label: const Text('Copiar'),
+            const SizedBox(height: AppSpacing.xs),
+            TextButton.icon(
+              onPressed: _generando ? null : _generar,
+              icon: const Icon(Icons.refresh, size: AppSizes.iconSmall),
+              label: Text(
+                _generando ? 'Generando...' : 'Generar código nuevo',
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.onGreen,
               ),
             ),
-            if (widget.vinculado) ...[
-              const SizedBox(height: 12),
-              const Text(
-                'El dispositivo ya está vinculado. Para generar un código '
-                'nuevo, primero desvincula el dispositivo.',
-                style: TextStyle(color: AppColors.textSecondary),
+            const Text(
+              'Compártelo con el paciente para que se vincule.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
               ),
-            ] else ...[
-              const SizedBox(height: 12),
-              BotonCargando(
-                cargando: _generando,
-                onPressed: _generar,
-                texto: 'Generar código nuevo',
-                icono: Icons.refresh,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Comparte este código con el paciente para que se vincule.',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
-            ],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),

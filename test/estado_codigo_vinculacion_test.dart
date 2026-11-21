@@ -34,7 +34,7 @@ void main() {
     final expira = DateTime(2026, 11, 13, 0, 5);
     expect(
       textoVencimientoCodigo(expira, DateTime(2026, 11, 12, 23, 55)),
-      'Vence el 13/11 a las 00:05',
+      'Vence el 13/11, 00:05',
     );
   });
 

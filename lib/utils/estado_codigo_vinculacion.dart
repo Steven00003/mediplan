@@ -21,7 +21,7 @@ String textoVencimientoCodigo(DateTime? expiraEn, DateTime ahora) {
     EstadoCodigoVinculacion.vencido => 'Código vencido',
     EstadoCodigoVinculacion.sinVencimiento => 'Sin vencimiento',
     EstadoCodigoVinculacion.vigente =>
-      'Vence el ${_fecha(expiraEn!)} a las ${_hora(expiraEn)}',
+      'Vence el ${_fecha(expiraEn!)}, ${_hora(expiraEn)}',
   };
 }
 
