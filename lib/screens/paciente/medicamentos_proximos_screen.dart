@@ -21,12 +21,14 @@ import '../../utils/errores_amigables.dart';
 import '../../utils/registros_toma.dart';
 import '../../utils/telefono_emergencia.dart';
 import '../../utils/vigencia_tratamiento.dart';
+import '../../utils/ventana_confirmacion.dart';
 import '../../widgets/banner_sin_conexion.dart';
 import '../../widgets/dialogo_accion_delicada.dart';
 import '../../widgets/estados.dart';
 import '../../widgets/menu_ayuda.dart';
 import 'alarma_screen.dart';
 import 'comprobar_celular_screen.dart';
+import 'detalle_medicamento_paciente_screen.dart';
 import 'diagnostico_alarma_screen.dart';
 
 /// Pantalla principal del Paciente: "Medicamentos próximos".
@@ -128,11 +130,9 @@ class _MedicamentosProximosScreenState
           int.parse(hh[0]),
           int.parse(hh[1]),
         );
-        final diff = fechaToma.difference(ahora);
-
         // Toma "due": ya pasó su hora y aún no fue confirmada, o está por
         // vencer dentro de 2 minutos.
-        if (diff.inSeconds <= 120 && diff.inSeconds >= -300) {
+        if (estaEnVentanaConfirmacion(fechaToma, ahora)) {
           if (!await _yaConfirmada(pacienteId, t.id, fechaToma)) {
             candidato = t;
             horarioCandidato = TimeOfDay(
@@ -550,11 +550,20 @@ class _MedicamentosProximosScreenState
                         );
                       }
                       final t = tratamientos[i];
-                      return _CardMedicamento(
+                      return TarjetaMedicamentoPaciente(
                         key: ValueKey(t.id),
                         tratamiento: t,
                         registros: registros,
-                        onAbrir: (hora) => _abrirAlarma(t, hora, pacienteId),
+                        onVerDetalle: () {
+                          Navigator.of(context).push(
+                            AppPageRoute(
+                              builder: (_) => DetalleMedicamentoPacienteScreen(
+                                pacienteId: pacienteId,
+                                tratamiento: t,
+                              ),
+                            ),
+                          );
+                        },
                       );
                     },
                   );
@@ -645,16 +654,16 @@ class _AccesoComprobarCelular extends StatelessWidget {
   }
 }
 
-class _CardMedicamento extends StatelessWidget {
+class TarjetaMedicamentoPaciente extends StatelessWidget {
   final Tratamiento tratamiento;
   final List<RegistroToma> registros;
-  final ValueChanged<TimeOfDay> onAbrir;
+  final VoidCallback onVerDetalle;
 
-  const _CardMedicamento({
+  const TarjetaMedicamentoPaciente({
     super.key,
     required this.tratamiento,
     required this.registros,
-    required this.onAbrir,
+    required this.onVerDetalle,
   });
 
   @override
@@ -667,7 +676,6 @@ class _CardMedicamento extends StatelessWidget {
         RegistrosToma.clave(r): r,
     };
 
-    TimeOfDay? proximaPendiente;
     final filas = <Widget>[];
     for (final slot in slots) {
       final registro =
@@ -675,12 +683,6 @@ class _CardMedicamento extends StatelessWidget {
             tratamiento.id,
             slot.horaProgramada,
           )];
-      if (!(registro?.estado.esTerminal ?? false) && proximaPendiente == null) {
-        proximaPendiente = TimeOfDay(
-          hour: slot.horaProgramada.hour,
-          minute: slot.horaProgramada.minute,
-        );
-      }
       filas.add(_FilaDosis(slot: slot, registro: registro));
     }
 
@@ -699,9 +701,7 @@ class _CardMedicamento extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadii.card),
-        onTap: proximaPendiente == null
-            ? null
-            : () => onAbrir(proximaPendiente!),
+        onTap: onVerDetalle,
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.sm),
           child: Row(
@@ -744,13 +744,9 @@ class _CardMedicamento extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.xs),
-              Icon(
-                proximaPendiente == null
-                    ? Icons.check_circle
-                    : Icons.chevron_right,
-                color: proximaPendiente == null
-                    ? AppColors.primaryStrong
-                    : AppColors.textSecondary,
+              const Icon(
+                Icons.chevron_right,
+                color: AppColors.textSecondary,
                 size: AppSizes.iconLarge,
               ),
             ],
