@@ -2,25 +2,34 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../models/estado_dispositivo.dart';
 import '../../models/paciente.dart';
 import '../../models/registro_toma.dart';
 import '../../models/tratamiento.dart';
 import '../../services/alerta_sin_tomas_service.dart';
 import '../../services/firestore_service.dart';
 import '../../services/notificaciones_service.dart';
+import '../../services/vinculacion_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_page_route.dart';
 import '../../theme/app_tokens.dart';
+import '../../utils/abrir_marcador.dart';
 import '../../utils/errores_amigables.dart';
+import '../../utils/estado_codigo_vinculacion.dart';
 import '../../utils/etiqueta_toma.dart';
 import '../../utils/estadisticas.dart';
 import '../../utils/registros_toma.dart';
+import '../../utils/reporte_estado_dispositivo.dart';
+import '../../utils/telefono_emergencia.dart';
 import '../../widgets/avatar_paciente.dart';
+import '../../widgets/banner_sin_conexion.dart';
+import '../../widgets/boton_cargando.dart';
 import '../../widgets/dialogo_accion_delicada.dart';
 import '../../widgets/estados.dart';
 import '../../widgets/snackbars.dart';
 import '../../widgets/tarjeta_medicamento.dart';
 import '../../widgets/tarjeta_paciente.dart';
+import 'editar_paciente_screen.dart';
 import 'editar_tratamiento_screen.dart';
 
 /// Detalle de un paciente: código de vinculación, sus tratamientos y un
@@ -43,8 +52,9 @@ class _DetallePacienteScreenState extends State<DetallePacienteScreen> {
       stream: FirebaseFirestore.instance
           .collection('pacientes')
           .doc(widget.pacienteId)
-          .snapshots(),
+          .snapshots(includeMetadataChanges: true),
       builder: (context, snap) {
+        reportarConexionDesde(context, snap.data?.metadata.isFromCache ?? true);
         if (snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: EstadoCargando(texto: 'Cargando paciente...'),
@@ -98,7 +108,22 @@ class _DetalleBodyState extends State<_DetalleBody> {
         paciente.dispositivoVinculadoId!.isNotEmpty;
 
     return Scaffold(
-      appBar: AppBar(title: Text(paciente.nombre)),
+      appBar: AppBar(
+        title: Text(paciente.nombre),
+        actions: [
+          IconButton(
+            tooltip: 'Editar',
+            onPressed: () {
+              Navigator.of(context).push(
+                AppPageRoute(
+                  builder: (_) => EditarPacienteScreen(paciente: paciente),
+                ),
+              );
+            },
+            icon: const Icon(Icons.edit),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           Navigator.of(context).push(
@@ -115,6 +140,10 @@ class _DetalleBodyState extends State<_DetalleBody> {
       ),
       body: Column(
         children: [
+          const BannerSinConexion(
+            mensaje:
+                'Sin conexión. Puede que estés viendo datos desactualizados.',
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.sm,
@@ -128,6 +157,8 @@ class _DetalleBodyState extends State<_DetalleBody> {
                 const SizedBox(height: AppSpacing.sm),
                 _CardCodigo(paciente: paciente, vinculado: vinculado),
                 if (vinculado) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  _CardCelularPaciente(estado: paciente.estadoDispositivo),
                   const SizedBox(height: AppSpacing.xs),
                   _BtnDesvincular(paciente: paciente),
                 ],
@@ -657,6 +688,142 @@ class _BadgeEstado extends StatelessWidget {
   return ('${nombre[0].toUpperCase()}${nombre.substring(1)}', color, icono);
 }
 
+/// Resumen compacto del celular que tiene las alarmas del paciente.
+class _CardCelularPaciente extends StatelessWidget {
+  final EstadoDispositivo? estado;
+
+  const _CardCelularPaciente({required this.estado});
+
+  @override
+  Widget build(BuildContext context) {
+    final ahora = DateTime.now();
+    final aviso = necesitaAvisoAlarmas(estado, ahora);
+    final ultima = textoUltimaSincronizacion(
+      estado?.ultimaSincronizacion,
+      ahora,
+    );
+    final notificacionesOk = estado?.notificacionesPermitidas == true;
+    final bateriaOk = estado?.bateriaSinRestricciones == true;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      color: aviso
+          ? AppColors.warning.withValues(alpha: 0.08)
+          : AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        side: BorderSide(color: aviso ? AppColors.warning : AppColors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.smartphone,
+                  color: aviso ? AppColors.warning : AppColors.accent,
+                  size: AppSizes.iconSmall,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Text(
+                    'Celular del paciente',
+                    style: AppType.label.copyWith(
+                      color: AppColors.onGreen,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (aviso)
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    color: AppColors.warning,
+                    size: AppSizes.iconSmall,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Última conexión: $ultima',
+              style: AppType.body.copyWith(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            Text(
+              'Alarmas programadas: ${estado?.alarmasProgramadas ?? 0}',
+              style: AppType.body.copyWith(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: 4,
+              children: [
+                _IndicadorCelular(
+                  ok: notificacionesOk,
+                  texto: estado == null
+                      ? 'Sin reporte del celular'
+                      : notificacionesOk
+                      ? 'Notificaciones permitidas'
+                      : 'Notificaciones bloqueadas',
+                ),
+                if (estado != null && !bateriaOk)
+                  const _IndicadorCelular(
+                    ok: false,
+                    texto: 'Batería con restricciones',
+                  ),
+              ],
+            ),
+            if (aviso) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                mensajeAlarmasNoSuenan,
+                style: AppType.label.copyWith(color: AppColors.warning),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IndicadorCelular extends StatelessWidget {
+  final bool ok;
+  final String texto;
+
+  const _IndicadorCelular({required this.ok, required this.texto});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = ok ? AppColors.accent : AppColors.warning;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          ok ? Icons.check_circle : Icons.warning_amber_rounded,
+          color: color,
+          size: 16,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          texto,
+          style: AppType.label.copyWith(
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _BtnDesvincular extends StatelessWidget {
   final Paciente paciente;
   const _BtnDesvincular({required this.paciente});
@@ -719,6 +886,7 @@ class _FichaPaciente extends StatelessWidget {
     final edad = paciente.edad;
     final condicion = paciente.condicion?.trim();
     final contacto = paciente.contactoEmergencia?.trim();
+    final telefono = normalizarTelefonoEmergencia(contacto);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -773,6 +941,43 @@ class _FichaPaciente extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (telefono != null) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Wrap(
+                    spacing: AppSpacing.xs,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            abrirMarcadorTelefono(context, telefono),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.onGreen,
+                          side: const BorderSide(color: AppColors.accent),
+                          minimumSize: const Size(0, AppSizes.minTouch),
+                        ),
+                        icon: const Icon(Icons.call, size: AppSizes.iconSmall),
+                        label: const Text('Llamar'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: telefono),
+                          );
+                          if (context.mounted) {
+                            mostrarSnackInfo(context, 'Número copiado');
+                          }
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.onGreen,
+                          side: const BorderSide(color: AppColors.accent),
+                          minimumSize: const Size(0, AppSizes.minTouch),
+                        ),
+                        icon: const Icon(Icons.copy, size: AppSizes.iconSmall),
+                        label: const Text('Copiar'),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ],
           ),
@@ -782,13 +987,89 @@ class _FichaPaciente extends StatelessWidget {
   }
 }
 
-class _CardCodigo extends StatelessWidget {
+class _CardCodigo extends StatefulWidget {
   final Paciente paciente;
   final bool vinculado;
   const _CardCodigo({required this.paciente, required this.vinculado});
 
   @override
+  State<_CardCodigo> createState() => _CardCodigoState();
+}
+
+class _CardCodigoState extends State<_CardCodigo> {
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _vinculo;
+  bool _generando = false;
+
+  String get _codigo => widget.paciente.codigoVinculacion.trim().toUpperCase();
+
+  @override
+  void initState() {
+    super.initState();
+    _escucharVinculo();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CardCodigo oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.paciente.codigoVinculacion !=
+        widget.paciente.codigoVinculacion) {
+      _escucharVinculo();
+    }
+  }
+
+  void _escucharVinculo() {
+    final codigo = _codigo;
+    _vinculo = codigo.isEmpty
+        ? null
+        : FirebaseFirestore.instance
+              .collection('vinculos')
+              .doc(codigo)
+              .snapshots();
+  }
+
+  Future<void> _copiar() async {
+    if (_codigo.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: _codigo));
+    HapticFeedback.lightImpact();
+    if (mounted) mostrarSnackInfo(context, 'Código copiado');
+  }
+
+  Future<void> _generar() async {
+    if (_generando) return;
+    final ok = await mostrarDialogoAccionDelicada(
+      context,
+      titulo: 'Generar código nuevo',
+      mensaje:
+          'El código actual dejará de funcionar. El paciente tendrá que usar '
+          'el nuevo para vincularse.',
+      textoAccion: 'Generar',
+      icono: Icons.refresh,
+    );
+    if (!ok || !mounted) return;
+
+    setState(() => _generando = true);
+    try {
+      final nuevo = await VinculacionService().regenerarCodigoVinculacion(
+        widget.paciente.id,
+      );
+      if (!mounted) return;
+      HapticFeedback.lightImpact();
+      mostrarSnackExito(context, 'Código nuevo generado: $nuevo');
+    } catch (e) {
+      if (mounted) {
+        mostrarSnackError(
+          context,
+          mensajeErrorAmigable(e, contexto: 'Error generando código'),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _generando = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final codigo = _codigo;
     return Card(
       color: AppColors.primary,
       child: Padding(
@@ -799,53 +1080,85 @@ class _CardCodigo extends StatelessWidget {
             Row(
               children: [
                 Icon(
-                  vinculado ? Icons.link : Icons.link_off,
-                  color: vinculado ? AppColors.accent : AppColors.warning,
+                  widget.vinculado ? Icons.link : Icons.link_off,
+                  color: widget.vinculado
+                      ? AppColors.accent
+                      : AppColors.warning,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  vinculado ? 'Dispositivo vinculado' : 'Código para unirse',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    widget.vinculado
+                        ? 'Dispositivo vinculado'
+                        : 'Código para unirse',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
             ),
-            if (!vinculado) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'Código de vinculación',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.accent),
+              ),
+              child: Text(
+                codigo.isEmpty ? 'Sin código' : codigo,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 28,
+                  letterSpacing: 2,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.onGreen,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _vencimiento(),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: codigo.isEmpty ? null : _copiar,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.onGreen,
+                  side: const BorderSide(color: AppColors.accent),
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                icon: const Icon(Icons.copy),
+                label: const Text('Copiar'),
+              ),
+            ),
+            if (widget.vinculado) ...[
               const SizedBox(height: 12),
               const Text(
-                'Toca para copiar. El paciente lo ingresa en su celular (rol Paciente).',
+                'El dispositivo ya está vinculado. Para generar un código '
+                'nuevo, primero desvincula el dispositivo.',
                 style: TextStyle(color: AppColors.textSecondary),
               ),
+            ] else ...[
               const SizedBox(height: 12),
-              GestureDetector(
-                onTap: () {
-                  Clipboard.setData(
-                    ClipboardData(text: paciente.codigoVinculacion),
-                  );
-                  HapticFeedback.lightImpact();
-                  mostrarSnackInfo(context, 'Código copiado');
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.accent),
-                  ),
-                  child: Text(
-                    paciente.codigoVinculacion,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 28,
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.onGreen,
-                    ),
-                  ),
-                ),
+              BotonCargando(
+                cargando: _generando,
+                onPressed: _generar,
+                texto: 'Generar código nuevo',
+                icono: Icons.refresh,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Comparte este código con el paciente para que se vincule.',
+                style: TextStyle(color: AppColors.textSecondary),
               ),
             ],
           ],
@@ -853,6 +1166,54 @@ class _CardCodigo extends StatelessWidget {
       ),
     );
   }
+
+  Widget _vencimiento() {
+    if (_vinculo == null) {
+      return const Text(
+        'Sin vencimiento',
+        style: TextStyle(color: AppColors.textSecondary),
+      );
+    }
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _vinculo,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return const Text(
+            'No se pudo consultar el vencimiento',
+            style: TextStyle(color: AppColors.error),
+          );
+        }
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Text(
+            'Consultando vencimiento...',
+            style: TextStyle(color: AppColors.textSecondary),
+          );
+        }
+
+        final expiraEn = _fechaDeExpiracion(snap.data?.data()?['expiraEn']);
+        final ahora = DateTime.now();
+        final estado = estadoDelCodigo(expiraEn, ahora);
+        final texto = textoVencimientoCodigo(expiraEn, ahora);
+        return Text(
+          texto,
+          style: TextStyle(
+            color: estado == EstadoCodigoVinculacion.vencido
+                ? AppColors.error
+                : AppColors.textSecondary,
+            fontWeight: estado == EstadoCodigoVinculacion.vencido
+                ? FontWeight.bold
+                : null,
+          ),
+        );
+      },
+    );
+  }
+}
+
+DateTime? _fechaDeExpiracion(Object? valor) {
+  if (valor is Timestamp) return valor.toDate();
+  if (valor is DateTime) return valor;
+  return null;
 }
 
 class _EstadoReciente extends StatefulWidget {

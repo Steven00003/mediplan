@@ -4,41 +4,86 @@
 <!--
   MediPlan · Página de presentación y manual
   ==========================================
-  ANTES DE PUBLICAR, completa este bloque y la sección #creditos:
+  ANTES DE PUBLICAR, completa los marcadores de la sección #creditos:
+    Equipo:   [NOMBRES DEL EQUIPO]
+    Contacto: [CORREO DE CONTACTO]
 
-    Equipo:   [David Steven Patiño Rueda]
-    Contacto: [correoej123@gmail.com]
-
-  No hay enlaces externos, analíticas, cookies ni recursos remotos.
+  No hay JavaScript, enlaces externos, analíticas, cookies ni recursos remotos.
   Las capturas son marcadores en docs/img/: reemplázalos por imágenes reales
   cuando las tengas.
 -->
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="MediPlan: pastillero familiar para cuidadores y pacientes. Manual de uso, alarmas, ajustes del celular y privacidad.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="MediPlan: pastillero familiar para cuidadores y pacientes. Manual de uso, alarmas, seguridad, límites y privacidad.">
   <meta name="theme-color" content="#A8E6B0">
+  <link rel="canonical" href="https://mediplan-35953.web.app/">
   <title>MediPlan · Pastillero familiar</title>
-  <link rel="icon" href="img/logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="MediPlan">
+  <meta property="og:title" content="MediPlan · Pastillero familiar">
+  <meta property="og:description" content="MediPlan: pastillero familiar para cuidadores y pacientes. Manual de uso, alarmas, seguridad, límites y privacidad.">
+  <meta property="og:url" content="https://mediplan-35953.web.app/">
+  <meta property="og:image" content="https://mediplan-35953.web.app/img/og.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Logo de MediPlan y el texto: el cuidador arma el plan, el paciente confirma cada toma.">
+  <meta property="og:locale" content="es_CO">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="MediPlan · Pastillero familiar">
+  <meta name="twitter:description" content="MediPlan: pastillero familiar para cuidadores y pacientes. Manual de uso, alarmas, seguridad, límites y privacidad.">
+  <meta name="twitter:image" content="https://mediplan-35953.web.app/img/og.png">
+  <meta name="twitter:image:alt" content="Logo de MediPlan y el texto: el cuidador arma el plan, el paciente confirma cada toma.">
+  <link rel="stylesheet" href="styles.min.css">
 </head>
-<body>
+<body id="top">
   <a class="skip-link" href="#contenido">Saltar al contenido</a>
 
   <header class="site-header">
     <div class="wrap header-inner">
       <a class="brand" href="#inicio" aria-label="MediPlan, volver al inicio">
-        <img src="img/logo.png" alt="Logo de MediPlan: reloj verde con una cápsula y una flecha circular" width="48" height="48">
+        <picture>
+          <source type="image/webp" srcset="img/logo-48.webp 1x, img/logo-96.webp 2x">
+          <img src="img/logo-48.png" srcset="img/logo-48.png 1x, img/logo-96.png 2x" alt="Logo de MediPlan: reloj verde con una cápsula y una flecha circular" width="48" height="48" decoding="async">
+        </picture>
         <span>MediPlan</span>
       </a>
-      <nav aria-label="Navegación principal">
+
+      <details class="menu-movil">
+        <summary>Menú</summary>
+        <nav aria-label="Navegación principal en móvil">
+          <ul class="nav-list">
+            <li><a href="#inicio" aria-current="page">Inicio</a></li>
+            <li><a href="#que-es">Qué es</a></li>
+            <li><a href="#como-funciona">Cómo funciona</a></li>
+            <li><a href="#manual-cuidador">Cuidador</a></li>
+            <li><a href="#manual-paciente">Paciente</a></li>
+            <li><a href="#ajustes">Ajustes</a></li>
+            <li><a href="#faq">Preguntas</a></li>
+            <li><a href="#arquitectura">Arquitectura</a></li>
+            <li><a href="#privacidad">Seguridad</a></li>
+            <li><a href="#novedades">Novedades</a></li>
+          </ul>
+        </nav>
+      </details>
+
+      <nav class="nav-desktop" aria-label="Navegación principal">
         <ul class="nav-list">
+          <li><a href="#inicio" aria-current="page">Inicio</a></li>
           <li><a href="#que-es">Qué es</a></li>
           <li><a href="#como-funciona">Cómo funciona</a></li>
           <li><a href="#manual-cuidador">Cuidador</a></li>
           <li><a href="#manual-paciente">Paciente</a></li>
           <li><a href="#ajustes">Ajustes</a></li>
           <li><a href="#faq">Preguntas</a></li>
-          <li><a href="#privacidad">Privacidad</a></li>
+          <li><a href="#arquitectura">Arquitectura</a></li>
+          <li><a href="#privacidad">Seguridad</a></li>
+          <li><a href="#novedades">Novedades</a></li>
         </ul>
       </nav>
     </div>
@@ -51,14 +96,17 @@
           <p class="eyebrow">Pastillero familiar</p>
           <h1 id="inicio-titulo">MediPlan</h1>
           <p class="lead">Una app para que el cuidador organice los medicamentos y el paciente reciba alarmas claras para tomar sus dosis.</p>
-          <p>Pensada para personas con deficiencia cognitiva leve o moderada y para quien las cuida. El cuidador arma el plan; el paciente solo tiene que confirmar cuando suena la alarma.</p>
+          <p>El cuidador arma el plan; el paciente solo tiene que confirmar cuando suena la alarma.</p>
           <div class="actions">
             <a class="btn btn-primary" href="#como-funciona">Cómo funciona</a>
             <a class="btn btn-secondary" href="#manual-cuidador">Manual</a>
           </div>
         </div>
         <div class="hero-art">
-          <img src="img/logo.png" alt="Logo de MediPlan: círculo verde con un reloj, una cápsula y una flecha circular" width="220" height="220">
+          <picture>
+            <source type="image/webp" srcset="img/logo-220.webp 1x, img/logo-440.webp 2x">
+            <img src="img/logo-220.png" srcset="img/logo-220.png 1x, img/logo-440.png 2x" alt="Logo de MediPlan: círculo verde con un reloj, una cápsula y una flecha circular" width="220" height="220" fetchpriority="high" decoding="async">
+          </picture>
         </div>
       </div>
     </section>
@@ -71,11 +119,11 @@
         <div class="cards two">
           <article class="card">
             <h3>Para el cuidador</h3>
-            <p>Agrega pacientes, crea tratamientos, comparte el código y revisa el historial, el horario y las estadísticas de cada persona que cuida.</p>
+            <p>Agrega pacientes, crea tratamientos, comparte el código y revisa el historial, el horario y las estadísticas de cada persona que cuida. También puede editar la ficha y llamar al contacto de emergencia desde el detalle.</p>
           </article>
           <article class="card">
             <h3>Para el paciente</h3>
-            <p>Ve sus medicamentos del día, recibe alarmas y confirma con “YA”. También puede posponer con “Recordar” si necesita unos minutos más.</p>
+            <p>Ve sus medicamentos del día, recibe alarmas y confirma con “YA”. También puede posponer con “Recordar” si necesita unos minutos más, y llamar al contacto de emergencia desde el final de su horario.</p>
           </article>
         </div>
       </div>
@@ -91,7 +139,7 @@
           </li>
           <li>
             <h3>El paciente se vincula con un código</h3>
-            <p>Elige “Paciente” y escribe el código <code>MEDI-XXXXXX</code> una sola vez. La app recuerda el vínculo en ese teléfono.</p>
+            <p>Elige “Paciente” y escribe el código <code>MEDI-XXXXXX</code> una sola vez. Los códigos nuevos vencen a las 72 horas; si vence, el cuidador puede generar otro. La app recuerda el vínculo en ese teléfono.</p>
           </li>
           <li>
             <h3>La alarma suena y el paciente confirma</h3>
@@ -106,7 +154,25 @@
         <h2 id="manual-cuidador-titulo">Manual del cuidador</h2>
         <p>En la app, el rol del cuidador se llama “Doctor”. No hace falta ser médico: la cuenta es para quien organiza los medicamentos y acompaña al paciente.</p>
 
-        <h3>1. Crea tu cuenta o entra con Google</h3>
+        <nav class="toc" aria-labelledby="toc-cuidador-titulo">
+          <h3 id="toc-cuidador-titulo">Contenido de este manual</h3>
+          <ol>
+            <li><a href="#cuidador-cuenta">Crea tu cuenta o entra con Google</a></li>
+            <li><a href="#cuidador-paciente">Agrega un paciente</a></li>
+            <li><a href="#cuidador-editar-ficha">Edita la ficha del paciente</a></li>
+            <li><a href="#cuidador-tratamiento">Crea un tratamiento</a></li>
+            <li><a href="#cuidador-codigo">Comparte el código y revisa su vencimiento</a></li>
+            <li><a href="#cuidador-codigo-nuevo">Genera un código nuevo</a></li>
+            <li><a href="#cuidador-pestanas">Historial, Horario y Estadísticas</a></li>
+            <li><a href="#cuidador-aviso">Aviso de 5 días sin tomas</a></li>
+            <li><a href="#cuidador-contacto">Llama al contacto de emergencia</a></li>
+            <li><a href="#cuidador-editar-tratamiento">Edita, finaliza o borra un tratamiento</a></li>
+            <li><a href="#cuidador-desvincular">Desvincula el dispositivo</a></li>
+            <li><a href="#cuidador-sin-conexion">Si no hay conexión</a></li>
+          </ol>
+        </nav>
+
+        <h3 id="cuidador-cuenta">1. Crea tu cuenta o entra con Google</h3>
         <ol>
           <li>Abre la app y elige “Doctor”.</li>
           <li>Si es tu primera vez, pulsa “¿No tienes cuenta? Regístrate”. Escribe tu nombre, correo y una contraseña de al menos 6 caracteres. Luego pulsa “Registrarme”.</li>
@@ -114,7 +180,7 @@
           <li>Si ya tienes cuenta, escribe correo y contraseña y pulsa “Entrar”.</li>
         </ol>
 
-        <h3>2. Agrega un paciente</h3>
+        <h3 id="cuidador-paciente">2. Agrega un paciente</h3>
         <ol>
           <li>En “Mis pacientes”, pulsa “Nuevo paciente”.</li>
           <li>Escribe el nombre del paciente. Es el único dato obligatorio.</li>
@@ -122,11 +188,24 @@
           <li>Pulsa “Generar código”. La app crea un código <code>MEDI-XXXXXX</code> y lo muestra en la tarjeta “Código para unirse”.</li>
         </ol>
         <figure>
-          <img src="img/captura-panel-cuidador.svg" alt="Captura pendiente: panel del cuidador" width="720" height="1080" loading="lazy">
+          <picture>
+            <source type="image/webp" srcset="img/captura-panel-cuidador-360.webp 1x, img/captura-panel-cuidador-720.webp 2x">
+            <img src="img/captura-panel-cuidador-360.png" srcset="img/captura-panel-cuidador-360.png 1x, img/captura-panel-cuidador-720.png 2x" alt="Captura pendiente: panel del cuidador" width="360" height="540" loading="lazy" decoding="async">
+          </picture>
           <figcaption>Captura pendiente: panel del cuidador.</figcaption>
         </figure>
 
-        <h3>3. Crea un tratamiento</h3>
+        <h3 id="cuidador-editar-ficha">3. Edita la ficha del paciente</h3>
+        <ol>
+          <li>Abre el detalle del paciente y pulsa el ícono de lápiz con la etiqueta “Editar”.</li>
+          <li>Puedes cambiar el nombre, la edad, la condición médica, el contacto de emergencia y la foto.</li>
+          <li>El nombre es obligatorio. La edad debe estar entre 0 y 120 años. El teléfono debe tener entre 7 y 15 dígitos. La condición admite hasta 80 caracteres.</li>
+          <li>La foto se puede cambiar o quitar. Se guarda comprimida dentro de la ficha.</li>
+          <li>Pulsa “Guardar cambios”. Si sales con cambios sin guardar, la app pregunta “¿Descartar cambios?”.</li>
+        </ol>
+        <p>La edición solo actualiza los datos de la ficha. No cambia el código de vinculación, el cuidador ni el dispositivo vinculado.</p>
+
+        <h3 id="cuidador-tratamiento">4. Crea un tratamiento</h3>
         <ol>
           <li>Abre la ficha del paciente y pulsa “Nuevo medicamento”.</li>
           <li>Completa el nombre del medicamento, la dosis, la frecuencia, la fecha de inicio y la duración.</li>
@@ -140,19 +219,32 @@
           <p><strong>Importante:</strong> la app programa una alarma por cada combinación de hora y día. Si dejas un horario sin días marcados, el editor marca todos los días para no guardar un horario vacío.</p>
         </div>
 
-        <h3>4. Comparte el código</h3>
+        <h3 id="cuidador-codigo">5. Comparte el código y revisa su vencimiento</h3>
         <ol>
-          <li>En el detalle del paciente, toca el código de la tarjeta “Código para unirse”. Se copia al portapapeles.</li>
+          <li>En el detalle del paciente, toca “Copiar” en la tarjeta “Código para unirse”. También puedes tocar el código para copiarlo.</li>
           <li>Envíaselo al paciente o escríbelo en su celular.</li>
           <li>El paciente lo ingresa una sola vez en el rol “Paciente”.</li>
           <li>Cuando se vincula, la tarjeta cambia a “Dispositivo vinculado”.</li>
         </ol>
+        <p>Los códigos nuevos vencen a las 72 horas. La tarjeta muestra la fecha y la hora (“Vence el DD/MM a las HH:MM”), “Código vencido” o “Sin vencimiento” cuando el vínculo es antiguo y no tiene fecha. Un código vencido no sirve para vincular un teléfono nuevo.</p>
         <figure>
-          <img src="img/captura-codigo.svg" alt="Captura pendiente: código para unirse" width="720" height="1080" loading="lazy">
+          <picture>
+            <source type="image/webp" srcset="img/captura-codigo-360.webp 1x, img/captura-codigo-720.webp 2x">
+            <img src="img/captura-codigo-360.png" srcset="img/captura-codigo-360.png 1x, img/captura-codigo-720.png 2x" alt="Captura pendiente: código para unirse" width="360" height="540" loading="lazy" decoding="async">
+          </picture>
           <figcaption>Captura pendiente: código para unirse.</figcaption>
         </figure>
 
-        <h3>5. Historial, Horario y Estadísticas</h3>
+        <h3 id="cuidador-codigo-nuevo">6. Genera un código nuevo</h3>
+        <p>Si el paciente no alcanzó a vincularse y el código venció, puedes generar otro. El botón “Generar código nuevo” aparece en la tarjeta cuando el dispositivo está sin vincular.</p>
+        <ol>
+          <li>Pulsa “Generar código nuevo”.</li>
+          <li>Confirma el aviso: el código actual dejará de funcionar y el paciente tendrá que usar el nuevo.</li>
+          <li>La app crea el código, lo guarda con una nueva fecha de vencimiento de 72 horas y borra el vínculo anterior.</li>
+        </ol>
+        <p>Si el dispositivo ya está vinculado, la tarjeta indica que primero hay que desvincularlo. No se puede generar un código nuevo para un paciente que ya tiene un teléfono asociado sin liberar ese vínculo.</p>
+
+        <h3 id="cuidador-pestanas">7. Historial, Horario y Estadísticas</h3>
         <p>La ficha del paciente tiene tres pestañas en la barra inferior. La app abre en “Horario”.</p>
         <ul>
           <li><strong>Horario:</strong> los medicamentos con sus horas, días y el resumen de estado reciente.</li>
@@ -160,12 +252,15 @@
           <li><strong>Estadísticas:</strong> la adherencia de los últimos 7 días, el reparto de las tomas, el resumen “Día por día”, una ventana aproximada de 30 días y la “Racha a tiempo”.</li>
         </ul>
         <figure>
-          <img src="img/captura-estadisticas.svg" alt="Captura pendiente: estadísticas" width="720" height="1080" loading="lazy">
+          <picture>
+            <source type="image/webp" srcset="img/captura-estadisticas-360.webp 1x, img/captura-estadisticas-720.webp 2x">
+            <img src="img/captura-estadisticas-360.png" srcset="img/captura-estadisticas-360.png 1x, img/captura-estadisticas-720.png 2x" alt="Captura pendiente: estadísticas" width="360" height="540" loading="lazy" decoding="async">
+          </picture>
           <figcaption>Captura pendiente: estadísticas.</figcaption>
         </figure>
 
-        <h3>6. Aviso de 5 días sin tomas</h3>
-        <p>Si un tratamiento lleva 5 días programados sin ninguna toma confirmada, el cuidador recibe una alerta. También aparece una tarjeta roja con el texto “5 días sin tomas” en el detalle del paciente.</p>
+        <h3 id="cuidador-aviso">8. Aviso de 5 días sin tomas</h3>
+        <p>Si un tratamiento lleva 5 días programados sin ninguna toma confirmada, el cuidador recibe una alerta. También aparece una tarjeta de aviso con el texto “5 días sin tomas” en el detalle del paciente.</p>
         <ul>
           <li>El cálculo se hace cuando la app del paciente revisa sus tomas: al abrirla o mientras está abierta.</li>
           <li>Una toma pospuesta no cuenta como confirmada. Una toma marcada como “Olvidó” tampoco.</li>
@@ -175,20 +270,33 @@
           <p><strong>Ojo:</strong> si el paciente nunca abre la app, el aviso push puede no salir. La tarjeta del cuidador sí se calcula al abrir el detalle del paciente.</p>
         </div>
 
-        <h3>7. Edita, finaliza o borra un tratamiento</h3>
+        <h3 id="cuidador-contacto">9. Llama al contacto de emergencia</h3>
+        <p>En la ficha del detalle, junto al contacto de emergencia, aparecen los botones “Llamar” y “Copiar” cuando el teléfono guardado es válido.</p>
+        <ul>
+          <li><strong>Llamar:</strong> abre el marcador del teléfono con el número. La app no hace la llamada directamente: el usuario confirma en el marcador.</li>
+          <li><strong>Copiar:</strong> copia el número normalizado al portapapeles y muestra “Número copiado”.</li>
+          <li>Si el teléfono no tiene entre 7 y 15 dígitos, los botones no se muestran.</li>
+          <li>Si el marcador no se puede abrir, la app muestra “No pudimos abrir el marcador. El número es <em>número</em>.”.</li>
+        </ul>
+
+        <h3 id="cuidador-editar-tratamiento">10. Edita, finaliza o borra un tratamiento</h3>
         <ul>
           <li><strong>Editar:</strong> toca un medicamento en la lista, cambia lo que necesites y pulsa “Guardar cambios”. La app cancela las alarmas anteriores y programa las nuevas.</li>
           <li><strong>Finalizar:</strong> no hay un botón “Finalizar”. La app marca “Finalizado” cuando pasa el último día de la duración elegida; la fecha de inicio cuenta como día 1. Cuando la app detecta que terminó, cancela las alarmas de ese tratamiento. Si eliges “Continuo”, no se finaliza solo.</li>
           <li><strong>Borrar:</strong> usa el ícono de papelera y confirma “Eliminar”. Se cancelan las alarmas y se borra el tratamiento. Esta acción no se puede deshacer. El historial de tomas anteriores se conserva.</li>
         </ul>
 
-        <h3>8. Desvincula el dispositivo</h3>
+        <h3 id="cuidador-desvincular">11. Desvincula el dispositivo</h3>
         <ol>
           <li>Entra al detalle del paciente y baja hasta el botón “Desvincular dispositivo”.</li>
           <li>Confirma “Desvincular”.</li>
           <li>El paciente deja de ver sus medicamentos en ese teléfono. Para volver a vincularlo, comparte el código otra vez.</li>
         </ol>
         <p>El paciente no puede desvincularse solo: esa acción la hace el cuidador.</p>
+
+        <h3 id="cuidador-sin-conexion">12. Si no hay conexión</h3>
+        <p>Cuando la app detecta que las lecturas llevan un rato viniendo de la memoria local, muestra el aviso “Sin conexión. Puede que estés viendo datos desactualizados.” en el panel y en el detalle del paciente. El aviso desaparece cuando vuelve la conexión.</p>
+        <p>Las alarmas ya programadas siguen funcionando. Los cambios que dependan de Firestore pueden tardar en sincronizarse hasta que vuelva la conexión.</p>
       </div>
     </section>
 
@@ -196,23 +304,43 @@
       <div class="wrap">
         <h2 id="manual-paciente-titulo">Manual del paciente</h2>
 
-        <h3>1. Elige “Paciente”</h3>
+        <nav class="toc" aria-labelledby="toc-paciente-titulo">
+          <h3 id="toc-paciente-titulo">Contenido de este manual</h3>
+          <ol>
+            <li><a href="#paciente-rol">Elige “Paciente”</a></li>
+            <li><a href="#paciente-codigo">Escribe el código una sola vez</a></li>
+            <li><a href="#paciente-alarma">La pantalla de la alarma</a></li>
+            <li><a href="#paciente-notificaciones">Las notificaciones</a></li>
+            <li><a href="#paciente-desliza">Desliza para ver más</a></li>
+            <li><a href="#paciente-contacto">Llama al contacto de emergencia</a></li>
+            <li><a href="#paciente-sin-conexion">Si no hay conexión</a></li>
+            <li><a href="#paciente-salir">“Salir” y volver a entrar</a></li>
+          </ol>
+        </nav>
+
+        <h3 id="paciente-rol">1. Elige “Paciente”</h3>
         <p>En la pantalla inicial, el botón “Paciente” tiene la descripción “Tomo mis medicinas”. Ese es el camino del paciente.</p>
+        <p>El cuidador puede editar tu ficha (nombre, edad, condición, contacto de emergencia y foto). Cuando lo haga, verás los datos nuevos la próxima vez que la app cargue la ficha.</p>
         <figure>
-          <img src="img/captura-seleccion-rol.svg" alt="Captura pendiente: selección de rol" width="720" height="1080" loading="lazy">
+          <picture>
+            <source type="image/webp" srcset="img/captura-seleccion-rol-360.webp 1x, img/captura-seleccion-rol-720.webp 2x">
+            <img src="img/captura-seleccion-rol-360.png" srcset="img/captura-seleccion-rol-360.png 1x, img/captura-seleccion-rol-720.png 2x" alt="Captura pendiente: selección de rol" width="360" height="540" loading="lazy" decoding="async">
+          </picture>
           <figcaption>Captura pendiente: selección de rol.</figcaption>
         </figure>
 
-        <h3>2. Escribe el código una sola vez</h3>
+        <h3 id="paciente-codigo">2. Escribe el código una sola vez</h3>
         <ol>
           <li>La pantalla dice “Código para unirse” y “Tu cuidador te dio un código. Escríbelo acá para empezar.”</li>
           <li>Escribe el código <code>MEDI-XXXXXX</code> y pulsa “Unirme”.</li>
           <li>Si el código no existe, la app muestra “Código inválido. Revisa el código.”</li>
+          <li>Si el código venció, muestra “Este código venció. Pide al cuidador que genere uno nuevo.”</li>
           <li>Si ya está vinculado a otro teléfono, muestra “Este código ya está vinculado a otro dispositivo. Pide al cuidador que lo desvincule.”</li>
         </ol>
-        <p>Después de vincularse, la app recuerda el vínculo. Al volver a abrirla verás “Continuar como paciente” y “Usar otro código”.</p>
+        <p>Los códigos nuevos vencen a las 72 horas. El cuidador puede usar “Generar código nuevo” en la tarjeta del paciente cuando el dispositivo está sin vincular. Si ya estabas vinculado en este mismo teléfono, la tarjeta de reingreso te devuelve sin escribir el código, aunque el código haya vencido.</p>
+        <p>Después de vincularse, la app recuerda el vínculo. Al volver a abrirla verás la tarjeta para entrar como ese paciente (“Continuar como paciente” o “Entrar como <em>nombre</em>”) y el enlace “Usar otro código”.</p>
 
-        <h3>3. La pantalla de la alarma</h3>
+        <h3 id="paciente-alarma">3. La pantalla de la alarma</h3>
         <p>Cuando llega la hora, la app muestra la foto del medicamento si la cargaste, la dosis y el nombre. También intenta abrirse a pantalla completa.</p>
         <ul>
           <li><strong>YA:</strong> confirma que el paciente tomó la dosis.</li>
@@ -225,11 +353,14 @@
           <p><strong>Pantalla completa:</strong> si el celular está desbloqueado y en uso, Android puede mostrar un aviso en lugar de abrir la alarma a pantalla completa. La alarma sigue estando; toca el aviso para abrirla.</p>
         </div>
         <figure>
-          <img src="img/captura-alarma.svg" alt="Captura pendiente: pantalla de alarma" width="720" height="1080" loading="lazy">
+          <picture>
+            <source type="image/webp" srcset="img/captura-alarma-360.webp 1x, img/captura-alarma-720.webp 2x">
+            <img src="img/captura-alarma-360.png" srcset="img/captura-alarma-360.png 1x, img/captura-alarma-720.png 2x" alt="Captura pendiente: pantalla de alarma" width="360" height="540" loading="lazy" decoding="async">
+          </picture>
           <figcaption>Captura pendiente: pantalla de alarma.</figcaption>
         </figure>
 
-        <h3>4. Las notificaciones</h3>
+        <h3 id="paciente-notificaciones">4. Las notificaciones</h3>
         <ul>
           <li><strong>5 minutos antes:</strong> “Tu medicina se acerca”. El texto dice el medicamento y la hora, y pide ir preparando la dosis.</li>
           <li><strong>Al confirmar:</strong> “¡Bien hecho!” con el texto “Toma registrada. Sigue así.”</li>
@@ -238,7 +369,7 @@
         </ul>
         <p>La alarma principal se repite cada semana en los días que marcó el cuidador.</p>
 
-        <h3>5. Desliza para ver más</h3>
+        <h3 id="paciente-desliza">5. Desliza para ver más</h3>
         <p>La alarma tiene una pista que dice “Desliza para ver más”. Al bajar encuentras:</p>
         <ul>
           <li><strong>Próxima toma:</strong> el día, la hora y una cuenta regresiva. Si es la última, muestra “Esta es tu última toma”.</li>
@@ -246,11 +377,24 @@
           <li><strong>Tiempo restante:</strong> solo si el tratamiento tiene fecha de inicio y duración.</li>
         </ul>
 
-        <h3>6. “Salir” y “Continuar como paciente”</h3>
+        <h3 id="paciente-contacto">6. Llama al contacto de emergencia</h3>
+        <p>Al final de la pestaña “Horario”, si el cuidador guardó un teléfono de emergencia válido, aparece una tarjeta discreta con el título “¿Necesitas ayuda?”.</p>
+        <ul>
+          <li>La tarjeta muestra el teléfono guardado y el botón “Llamar al contacto de emergencia”.</li>
+          <li>El botón abre el marcador del teléfono. La app no llama directamente: tú confirmas la llamada en el marcador.</li>
+          <li>Si el teléfono no es válido o no hay contacto, la tarjeta no se muestra.</li>
+          <li>Esta tarjeta no aparece en la pantalla de la alarma.</li>
+        </ul>
+
+        <h3 id="paciente-sin-conexion">7. Si no hay conexión</h3>
+        <p>Cuando la app detecta que las lecturas llevan un rato viniendo de la memoria local, muestra “Sin conexión. Tus alarmas siguen funcionando.” en la pestaña “Horario”. El aviso desaparece cuando vuelve la conexión.</p>
+        <p>Las alarmas ya programadas siguen funcionando sin internet. Los datos que se muestran pueden estar desactualizados hasta que vuelva la conexión.</p>
+
+        <h3 id="paciente-salir">8. “Salir” y volver a entrar</h3>
         <ul>
           <li>Pulsa “Salir” arriba a la derecha o mantén pulsada la pantalla. Confirma “Salir”.</li>
-          <li>La app vuelve a la selección de rol. La sesión anónima se conserva: “Continuar como paciente” te devuelve sin escribir el código.</li>
-          <li>Para entrar con otro paciente, pulsa “Usar otro código”.</li>
+          <li>La app vuelve a la selección de rol. La sesión anónima se conserva: la tarjeta de reingreso te devuelve sin escribir el código.</li>
+          <li>Para entrar con otro paciente, pulsa el enlace “Usar otro código” que aparece debajo de la tarjeta de reingreso.</li>
           <li>El paciente no puede desvincular el teléfono. Eso lo hace el cuidador desde su cuenta.</li>
         </ul>
       </div>
@@ -287,155 +431,276 @@
     <section id="faq" class="section" aria-labelledby="faq-titulo">
       <div class="wrap">
         <h2 id="faq-titulo">Preguntas frecuentes</h2>
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary>¿Por qué el código venció?</summary>
+            <div class="faq-answer">
+              <p>Los códigos nuevos se guardan con una fecha de vencimiento de 72 horas. Pasado ese tiempo no sirven para vincular un teléfono nuevo. Pide al cuidador que genere uno nuevo. Si el paciente ya estaba vinculado en ese mismo teléfono, la tarjeta de reingreso lo devuelve sin escribir el código.</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿Qué pasa si no hay internet?</h3>
-          <p>Las alarmas ya programadas suenan sin internet. Para confirmar una toma y que el cuidador la vea, hace falta conexión. Si no hay red, el registro puede quedar pendiente hasta que vuelva la conexión.</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿Cómo corrijo los datos de un paciente?</summary>
+            <div class="faq-answer">
+              <p>El cuidador abre el detalle del paciente y pulsa el lápiz “Editar”. Puede cambiar el nombre, la edad, la condición médica, el contacto de emergencia y la foto, y luego pulsa “Guardar cambios”. La app solo actualiza esos datos de la ficha.</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿Qué pasa si cambio de celular?</h3>
-          <p>El cuidador debe pulsar “Desvincular dispositivo” en el detalle del paciente. Después instalas la app en el teléfono nuevo, eliges “Paciente” y escribes el mismo código.</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿Qué pasa si no hay internet?</summary>
+            <div class="faq-answer">
+              <p>Las alarmas ya programadas siguen funcionando. La app muestra un aviso “Sin conexión” cuando los datos llevan un rato viniendo de la memoria local. Para que el cuidador vea una confirmación, hace falta que vuelva la conexión y se sincronice el registro.</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿Por qué el código dice “ya vinculado a otro dispositivo”?</h3>
-          <p>Porque ese código ya está asociado a otro teléfono. Pide al cuidador que lo desvincule y vuelve a intentarlo. El mensaje completo es: “Este código ya está vinculado a otro dispositivo. Pide al cuidador que lo desvincule.”</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿Cómo llamo al contacto de emergencia?</summary>
+            <div class="faq-answer">
+              <p>El cuidador puede usar “Llamar” junto al contacto en el detalle del paciente. El paciente lo encuentra al final de su pestaña “Horario”, en la tarjeta “¿Necesitas ayuda?”. El botón abre el marcador del teléfono; la llamada se confirma allí.</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿Cómo vinculo otro paciente?</h3>
-          <p>En la pantalla inicial pulsa “Usar otro código” y escribe el código del nuevo paciente. La app muestra el último paciente vinculado en ese teléfono. Si vas a usar el paciente anterior en otro celular, el cuidador debe desvincularlo primero.</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿Qué pasa si se pierde el celular?</summary>
+            <div class="faq-answer">
+              <p>El cuidador puede pulsar “Desvincular dispositivo” en el detalle del paciente. Cuando el teléfono vuelve a conectarse, la app detecta que ya no está vinculado y deja de mostrar los datos del paciente. MediPlan no puede borrar datos ya descargados ni cancelar alarmas ya programadas en un teléfono que está apagado o sin conexión.</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿El paciente necesita una cuenta?</h3>
-          <p>No. El paciente entra como usuario anónimo y se identifica con el código que le da el cuidador. No tiene correo ni contraseña.</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿Hay un límite de pacientes?</summary>
+            <div class="faq-answer">
+              <p>La app no define un número máximo de pacientes. La lista de “Mis pacientes” no aplica un límite explícito en el código. El límite práctico depende del rendimiento del teléfono, del tamaño de los datos y de los límites del servicio de Firebase.</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿Qué pasa cuando termina un tratamiento?</h3>
-          <p>La app lo marca “Finalizado” y cancela sus alarmas. El historial de tomas anteriores se conserva. Si el tratamiento es “Continuo”, no se finaliza solo.</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿Qué pasa si cambio de celular?</summary>
+            <div class="faq-answer">
+              <p>El cuidador debe pulsar “Desvincular dispositivo” en el detalle del paciente. Después instalas la app en el teléfono nuevo, eliges “Paciente” y escribes el mismo código, o el cuidador genera uno nuevo si el anterior venció.</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿Por qué no suena la alarma?</h3>
-          <p>Revisa, en este orden: el permiso de notificaciones, las alarmas exactas, el ahorro de batería y el modo “No molestar”. También confirma que el día de hoy esté marcado en el horario y que el tratamiento no esté finalizado. Si el teléfono estaba apagado a esa hora, la alarma no suena.</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿Por qué el código dice “ya vinculado a otro dispositivo”?</summary>
+            <div class="faq-answer">
+              <p>Porque ese código ya está asociado a otro teléfono. Pide al cuidador que lo desvincule y vuelve a intentarlo. El mensaje completo es: “Este código ya está vinculado a otro dispositivo. Pide al cuidador que lo desvincule.”</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿Quién ve mis datos?</h3>
-          <p>El cuidador ve los pacientes que creó. El paciente ve los datos del paciente al que está vinculado. Otros cuidadores no pueden leer el perfil, los tratamientos ni las tomas de un paciente ajeno. El índice de códigos (código e identificador del paciente) sí lo puede leer cualquier sesión autenticada, pero no contiene datos clínicos. La app no tiene un panel de administración.</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿Cómo vinculo otro paciente?</summary>
+            <div class="faq-answer">
+              <p>En la pantalla inicial pulsa “Usar otro código” y escribe el código del nuevo paciente. La app muestra el último paciente vinculado en ese teléfono. Si vas a usar el paciente anterior en otro celular, el cuidador debe desvincularlo primero.</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿Funciona en iPhone?</h3>
-          <p>No. Esta versión funciona en Android. No hay una versión para iOS.</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿El paciente necesita una cuenta?</summary>
+            <div class="faq-answer">
+              <p>No. El paciente entra como usuario anónimo y se identifica con el código que le da el cuidador. No tiene correo ni contraseña.</p>
+            </div>
+          </details>
 
-        <article class="faq-item">
-          <h3>¿MediPlan reemplaza al médico?</h3>
-          <p>No. MediPlan organiza recordatorios y registros. No diagnostica, no ajusta dosis y no reemplaza la indicación de un médico.</p>
-        </article>
+          <details class="faq-item">
+            <summary>¿Qué pasa cuando termina un tratamiento?</summary>
+            <div class="faq-answer">
+              <p>La app lo marca “Finalizado” y cancela sus alarmas. El historial de tomas anteriores se conserva. Si el tratamiento es “Continuo”, no se finaliza solo.</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>¿Por qué no suena la alarma?</summary>
+            <div class="faq-answer">
+              <p>Revisa, en este orden: el permiso de notificaciones, las alarmas exactas, el ahorro de batería y el modo “No molestar”. También confirma que el día de hoy esté marcado en el horario y que el tratamiento no esté finalizado. Si el teléfono estaba apagado a esa hora, la alarma no suena.</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>¿Quién ve mis datos?</summary>
+            <div class="faq-answer">
+              <p>El cuidador ve los pacientes que creó. El paciente ve los datos del paciente al que está vinculado. Otros cuidadores no pueden leer el perfil, los tratamientos ni las tomas de un paciente ajeno. El índice de códigos (código e identificador del paciente) se puede obtener por código desde una sesión autenticada, pero no se puede listar y no contiene datos clínicos. La app no tiene un panel de administración.</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>¿Funciona en iPhone?</summary>
+            <div class="faq-answer">
+              <p>No. Esta versión funciona en Android. No hay una versión para iOS.</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>¿MediPlan reemplaza al médico?</summary>
+            <div class="faq-answer">
+              <p>No. MediPlan organiza recordatorios y registros. No diagnostica, no ajusta dosis y no reemplaza la indicación de un médico.</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>¿Puedo usar datos reales de pacientes?</summary>
+            <div class="faq-answer">
+              <p>Esta es una versión académica. Antes de usar datos reales hay que completar la política de privacidad, revisar la seguridad con el docente y definir un procedimiento de acceso, corrección y borrado.</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="arquitectura" class="section" aria-labelledby="arquitectura-titulo">
+      <div class="wrap">
+        <h2 id="arquitectura-titulo">Cómo está construida</h2>
+        <p>La app es un cliente Flutter para Android. No hay Cloud Functions ni Firebase Storage: la lógica y las lecturas viven en el teléfono, y la seguridad se apoya en Firebase Auth y en las reglas de Firestore.</p>
+
+        <figure class="architecture">
+          <div class="architecture-scroll" tabindex="0" role="group" aria-label="Diagrama de arquitectura. En pantallas pequeñas puedes desplazarte horizontalmente.">
+          <svg viewBox="0 0 1000 640" role="img" aria-labelledby="arq-titulo arq-desc">
+            <title id="arq-titulo">Arquitectura de MediPlan</title>
+            <desc id="arq-desc">Diagrama con las dos apps Flutter, Firebase Auth con cuenta y sesión anónima, Cloud Firestore con las colecciones usuarios, pacientes, tratamientos, registrosToma y vinculos, notificaciones locales, alarma tipo despertador y un único push FCM para la alerta de cinco días sin tomas.</desc>
+            <defs>
+              <marker id="flecha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#1B3A21"/>
+              </marker>
+            </defs>
+
+            <rect x="30" y="70" width="280" height="250" rx="18" fill="#FFFFFF" stroke="#1B3A21" stroke-width="2"/>
+            <text x="170" y="105" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#1B3A21">App Flutter</text>
+            <rect x="50" y="130" width="240" height="72" rx="12" fill="#A8E6B0" stroke="#1B3A21" stroke-width="1.5"/>
+            <text x="170" y="160" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#1B3A21">Cuidador</text>
+            <text x="170" y="182" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">Cuenta con correo o Google</text>
+            <rect x="50" y="220" width="240" height="72" rx="12" fill="#A8E6B0" stroke="#1B3A21" stroke-width="1.5"/>
+            <text x="170" y="250" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#1B3A21">Paciente</text>
+            <text x="170" y="272" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">Sesión anónima, sin cuenta</text>
+
+            <rect x="370" y="45" width="310" height="465" rx="18" fill="#FFFFFF" stroke="#1B3A21" stroke-width="2"/>
+            <text x="525" y="80" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#1B3A21">Firebase</text>
+            <rect x="390" y="100" width="270" height="88" rx="12" fill="#E8F5E9" stroke="#4CAF50" stroke-width="1.5"/>
+            <text x="525" y="128" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#1B3A21">Firebase Auth</text>
+            <text x="525" y="150" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">Cuenta del cuidador</text>
+            <text x="525" y="170" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">Sesión anónima del paciente</text>
+
+            <rect x="390" y="210" width="270" height="285" rx="12" fill="#FFFFFF" stroke="#4CAF50" stroke-width="1.5"/>
+            <text x="525" y="238" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#1B3A21">Cloud Firestore</text>
+            <rect x="405" y="252" width="240" height="34" rx="8" fill="#A8E6B0"/>
+            <text x="525" y="274" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">usuarios/{uid}</text>
+            <rect x="405" y="294" width="240" height="34" rx="8" fill="#A8E6B0"/>
+            <text x="525" y="316" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">pacientes/{id}</text>
+            <rect x="405" y="336" width="240" height="34" rx="8" fill="#A8E6B0"/>
+            <text x="525" y="358" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">tratamientos/{id}</text>
+            <rect x="405" y="378" width="240" height="34" rx="8" fill="#A8E6B0"/>
+            <text x="525" y="400" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">registrosToma/{id}</text>
+            <rect x="405" y="420" width="240" height="34" rx="8" fill="#FFF3E0" stroke="#EF6C00" stroke-width="1"/>
+            <text x="525" y="442" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">vinculos/{codigo}</text>
+            <text x="525" y="478" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#6B7280">Cuatro colecciones principales + índice de códigos</text>
+
+            <rect x="740" y="70" width="230" height="100" rx="14" fill="#FFFFFF" stroke="#1B3A21" stroke-width="2"/>
+            <text x="855" y="104" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#1B3A21">Notificaciones</text>
+            <text x="855" y="126" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#1B3A21">locales</text>
+            <text x="855" y="150" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">Aviso previo, alarma y recordatorio</text>
+
+            <rect x="740" y="190" width="230" height="100" rx="14" fill="#FFFFFF" stroke="#1B3A21" stroke-width="2"/>
+            <text x="855" y="224" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#1B3A21">Alarma tipo</text>
+            <text x="855" y="246" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#1B3A21">despertador</text>
+            <text x="855" y="270" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">Pantalla completa y brillo</text>
+
+            <rect x="740" y="330" width="230" height="150" rx="14" fill="#FFF3E0" stroke="#EF6C00" stroke-width="2"/>
+            <text x="855" y="364" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#1B3A21">FCM</text>
+            <text x="855" y="388" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">Único push externo:</text>
+            <text x="855" y="410" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#1B3A21">alerta de 5 días sin tomas</text>
+            <text x="855" y="432" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#1B3A21">Lo envía el teléfono del paciente</text>
+            <text x="855" y="452" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#1B3A21">al cuidador</text>
+
+            <line x1="310" y1="166" x2="390" y2="144" stroke="#1B3A21" stroke-width="2" marker-end="url(#flecha)"/>
+            <line x1="310" y1="256" x2="390" y2="250" stroke="#1B3A21" stroke-width="2" marker-end="url(#flecha)"/>
+            <line x1="310" y1="220" x2="370" y2="220" stroke="#1B3A21" stroke-width="2" marker-end="url(#flecha)"/>
+            <line x1="680" y1="130" x2="740" y2="120" stroke="#1B3A21" stroke-width="2" marker-end="url(#flecha)"/>
+            <line x1="680" y1="250" x2="740" y2="240" stroke="#1B3A21" stroke-width="2" marker-end="url(#flecha)"/>
+            <line x1="740" y1="405" x2="310" y2="405" stroke="#EF6C00" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#flecha)"/>
+            <text x="520" y="395" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#EF6C00">push de alerta</text>
+            <text x="520" y="560" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#6B7280">Sin Cloud Functions ni Firebase Storage. Fotos en base64 dentro de Firestore.</text>
+          </svg>
+          </div>
+          <figcaption>Las dos apps comparten el mismo cliente Flutter. Firebase Auth distingue la cuenta del cuidador y la sesión anónima del paciente; Firestore guarda el modelo y el teléfono programa las alarmas locales. La única salida externa de mensajería es el push FCM de la alerta de 5 días sin tomas. En pantallas pequeñas, el diagrama se puede desplazar horizontalmente.</figcaption>
+        </figure>
+
+        <p><strong>En palabras:</strong> el teléfono del cuidador y el del paciente ejecutan la misma app Flutter. Firebase Auth resuelve una cuenta con correo o Google para el cuidador y una sesión anónima para el paciente. Cloud Firestore guarda cuatro colecciones principales —<code>usuarios</code>, <code>pacientes</code>, <code>tratamientos</code> y <code>registrosToma</code>— y el índice <code>vinculos</code>. El teléfono del paciente programa notificaciones locales y una alarma tipo despertador. La única llamada a un servicio externo de mensajería es el push FCM que el teléfono del paciente envía al cuidador para la alerta de 5 días sin tomas. No hay Cloud Functions ni Firebase Storage; las fotos se guardan como texto base64 dentro de Firestore.</p>
       </div>
     </section>
 
     <section id="privacidad" class="section" aria-labelledby="privacidad-titulo">
       <div class="wrap">
-        <h2 id="privacidad-titulo">Privacidad y seguridad</h2>
-        <p>Esta sección describe lo que la app guarda y lo que permiten las reglas de la base de datos. No prometemos cifrado propio ni garantías que no estén en el código.</p>
+        <h2 id="privacidad-titulo">Seguridad y privacidad</h2>
+        <p>Esta sección describe lo que el código permite y lo que guarda. No promete cifrado propio, auditoría ni garantías que no estén implementadas. La política de tratamiento de datos ampliada es un <a href="privacidad.html">borrador aparte</a>.</p>
 
-        <h3>Qué datos se guardan</h3>
+        <h3>Reglas de Firestore por rol</h3>
         <ul>
-          <li><strong>Cuidador:</strong> nombre, correo (si usas cuenta de correo) y el identificador de Firebase Auth.</li>
-          <li><strong>Paciente:</strong> nombre, edad, condición médica, contacto de emergencia y foto. La edad, la condición, el contacto y la foto son opcionales. También se guarda el código de vinculación, el identificador anónimo del teléfono y el token de push del cuidador.</li>
-          <li><strong>Tratamientos:</strong> nombre del medicamento, foto opcional, dosis, horarios con días de la semana, frecuencia, duración, fecha de inicio y la fecha del último aviso de 5 días sin tomas.</li>
-          <li><strong>Tomas:</strong> identificador del medicamento, hora programada, hora de confirmación (si existe) y estado: “Tomó”, “Tardó”, “Olvidó” o “Pospuesta”.</li>
-          <li><strong>Vínculos:</strong> un índice que relaciona el código <code>MEDI-XXXXXX</code> con el identificador del paciente.</li>
+          <li><strong>Cuidador dueño:</strong> puede leer y actualizar sus pacientes, y crear, leer, actualizar y borrar sus tratamientos y registros. También puede liberar el dispositivo vinculado.</li>
+          <li><strong>Paciente con sesión anónima:</strong> puede leer el paciente al que está vinculado, sus tratamientos y sus tomas. Solo puede escribir campos concretos: el <code>dispositivoVinculadoId</code> al vincularse, sus propios <code>registrosToma</code> y el campo <code>ultimoAvisoSinTomas</code> de un tratamiento. No puede editar la ficha, crear tratamientos ni desvincularse.</li>
+          <li><strong>Índice <code>vinculos</code>:</strong> cualquier sesión autenticada puede obtener un código por su ID, porque el paciente anónimo lo necesita para resolverlo. No se puede listar la colección completa. Crear, actualizar y borrar exige ser el cuidador del paciente.</li>
         </ul>
 
-        <h3>Dónde se guardan</h3>
-        <ul>
-          <li>Las cuentas se manejan con Firebase Auth. Los datos se guardan en Cloud Firestore, el servicio de base de datos de Firebase.</li>
-          <li>Las fotos se guardan como texto base64 dentro del documento de Firestore. No se usa Firebase Storage.</li>
-          <li>El teléfono del paciente guarda el código de la última vinculación para que “Continuar como paciente” funcione sin volver a escribirlo.</li>
-          <li>La alerta de 5 días sin tomas se envía por Firebase Cloud Messaging. El aviso incluye el nombre del paciente y el nombre del medicamento.</li>
-        </ul>
+        <h3>Paciente anónimo y vinculación a un solo dispositivo</h3>
+        <p>El paciente no tiene correo ni contraseña. Su UID anónimo de Firebase Auth queda guardado en <code>pacientes/{id}.dispositivoVinculadoId</code>. La vinculación solo se permite si el campo está libre y el código está vigente. Un mismo código no puede quedar asociado a dos teléfonos: si el campo ya está ocupado, la regla rechaza la escritura. El cuidador puede liberar el campo con “Desvincular dispositivo”.</p>
 
-        <h3>Qué puede hacer cada rol</h3>
-        <div class="table-wrap">
-          <table>
-            <caption>Acciones permitidas por rol en la app</caption>
-            <thead>
-              <tr>
-                <th scope="col">Acción</th>
-                <th scope="col">Cuidador</th>
-                <th scope="col">Paciente</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Crear pacientes</td>
-                <td>Sí</td>
-                <td>No</td>
-              </tr>
-              <tr>
-                <td>Crear, editar y borrar tratamientos</td>
-                <td>Sí, de sus pacientes</td>
-                <td>No</td>
-              </tr>
-              <tr>
-                <td>Ver tratamientos e historial</td>
-                <td>Sí, de sus pacientes</td>
-                <td>Sí, del paciente vinculado</td>
-              </tr>
-              <tr>
-                <td>Ver estadísticas</td>
-                <td>Sí, de sus pacientes</td>
-                <td>No</td>
-              </tr>
-              <tr>
-                <td>Confirmar o posponer una toma</td>
-                <td>No desde la app</td>
-                <td>Sí</td>
-              </tr>
-              <tr>
-                <td>Desvincular el teléfono</td>
-                <td>Sí</td>
-                <td>No</td>
-              </tr>
-              <tr>
-                <td>Leer los datos de un paciente de otro cuidador</td>
-                <td>No</td>
-                <td>No</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <h3>Código con vencimiento</h3>
+        <p>Los vínculos nuevos guardan <code>expiraEn</code> con 72 horas de vigencia. La comprobación del cliente y la regla de Firestore usan el mismo límite: el código deja de servir en el instante de vencimiento. Los vínculos antiguos sin <code>expiraEn</code> se siguen aceptando por compatibilidad. El reingreso del mismo dispositivo ya vinculado no depende del vencimiento.</p>
+
+        <h3>Qué escribe el paciente</h3>
+        <p>El paciente solo puede cambiar el campo <code>dispositivoVinculadoId</code> durante la vinculación, crear sus propios <code>registrosToma</code> y actualizar <code>ultimoAvisoSinTomas</code>. Las reglas no le permiten modificar el nombre, la edad, la condición, el contacto, la foto, el código, los horarios ni los datos del cuidador.</p>
+
+        <h3>Fotos y datos dentro de Firestore</h3>
+        <p>Las fotos de pacientes y medicamentos se guardan como texto base64 dentro del documento de Firestore. No se usa Firebase Storage. El código comprime las imágenes antes de guardarlas, pero el documento completo —incluida la foto— se descarga cuando la app lee la ficha o la lista de pacientes.</p>
 
         <h3>Lo que no prometemos</h3>
         <ul>
-          <li>No hay cifrado propio ni cifrado de extremo a extremo. La seguridad de acceso depende de Firebase Auth y de las reglas de Firestore.</li>
+          <li>La app no implementa cifrado propio ni cifrado de extremo a extremo. La protección de acceso depende de Firebase Auth y de las reglas de Firestore.</li>
           <li>No hay auditoría de seguridad ni garantía de disponibilidad.</li>
-          <li>La app no incluye módulos de analítica, publicidad ni rastreadores.</li>
-          <li>Esta es una versión académica. No uses datos reales de pacientes.</li>
+          <li>No hay módulos de analítica, publicidad ni rastreadores.</li>
+          <li>Esta es una versión académica. Antes de usar datos reales hay que revisar la política de privacidad con el docente.</li>
         </ul>
       </div>
     </section>
 
     <section id="limitaciones" class="section" aria-labelledby="limitaciones-titulo">
       <div class="wrap">
-        <h2 id="limitaciones-titulo">Limitaciones conocidas y aviso</h2>
+        <h2 id="limitaciones-titulo">Limitaciones y trabajo futuro</h2>
         <div class="callout callout-danger">
           <p><strong>MediPlan no es un dispositivo médico.</strong> No diagnostica, no ajusta dosis y no reemplaza la indicación de un médico. Si hay una duda sobre un tratamiento, consulta con un profesional de la salud.</p>
         </div>
+
+        <h3>Limitaciones conocidas</h3>
         <ul>
-          <li>Es un proyecto académico de la UTS.</li>
-          <li>Funciona en Android. No hay versión para iOS.</li>
-          <li>Las alarmas dependen de los permisos y del ahorro de batería del teléfono. Cada marca de Android los organiza distinto.</li>
-          <li>El aviso de 5 días sin tomas se calcula cuando la app del paciente revisa sus tomas. Si el paciente nunca abre la app, el push puede no salir; la tarjeta del cuidador sí se calcula al abrir el detalle.</li>
-          <li>Si el teléfono está apagado a la hora de la toma, la alarma no suena.</li>
-          <li>Esta versión es académica y no está preparada para producción ni para datos reales de pacientes.</li>
+          <li><strong>Credencial de FCM dentro del APK:</strong> el archivo de cuenta de servicio viaja en la app (<code>assets/secrets/fcm_service_account.json</code>). Es extraíble. El rol debería limitarse a <code>cloudmessaging.messages.create</code>; la solución real es un backend que firme y envíe el push.</li>
+          <li><strong>Fotos dentro de Firestore:</strong> las imágenes van en base64 en el documento. La lista de pacientes descarga documentos completos, incluida la foto, porque no hay proyección de campos ni miniaturas. Eso aumenta el tamaño de las lecturas.</li>
+          <li><strong>Solo Android:</strong> esta versión no tiene app para iOS.</li>
+          <li><strong>Alarmas dependientes del sistema:</strong> los fabricantes de celulares pueden restringir el ahorro de batería, las alarmas exactas o el inicio en segundo plano. Si el teléfono está apagado a la hora de la toma, la alarma no suena.</li>
+          <li><strong>Push condicionado:</strong> la alerta de 5 días sin tomas se calcula cuando la app del paciente revisa sus tomas. Si el paciente nunca abre la app, el push puede no salir; la tarjeta del cuidador sí se calcula al abrir el detalle.</li>
+          <li><strong>Proyecto académico:</strong> no está preparado para producción ni para datos reales de pacientes sin una revisión de privacidad y seguridad.</li>
+        </ul>
+
+        <h3>Trabajo futuro</h3>
+        <ul>
+          <li>Backend para el push: mover la credencial de FCM fuera del APK y enviar la notificación desde un servidor o proxy.</li>
+          <li>Miniaturas y paginación: guardar versiones pequeñas de las fotos y cargar las listas por páginas para no descargar documentos completos.</li>
+          <li>Cloud Storage: mover las fotos fuera de Firestore cuando el proyecto deje de ser académico.</li>
+          <li>iOS: evaluar una versión para iPhone y sus permisos de notificaciones y alarmas.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="novedades" class="section" aria-labelledby="novedades-titulo">
+      <div class="wrap">
+        <h2 id="novedades-titulo">Novedades</h2>
+        <p><strong>Versión actual: 1.0.0+1.</strong> Es la versión visible en “Acerca de” y la que está definida en <code>lib/constants.dart</code>.</p>
+        <h3>En esta versión</h3>
+        <ul>
+          <li>Vinculación por código <code>MEDI-XXXXXX</code>, con vencimiento de 72 horas y opción “Generar código nuevo”.</li>
+          <li>Ficha editable del paciente: nombre, edad, condición, contacto de emergencia y foto.</li>
+          <li>Tratamientos con horarios por día, alarmas locales, aviso previo, recordatorio tardío y reconciliación de tomas olvidadas.</li>
+          <li>Aviso de 5 días sin tomas por push FCM y tarjeta de respaldo en el detalle del cuidador.</li>
+          <li>Aviso discreto de “Sin conexión” en el panel del cuidador y en el horario del paciente.</li>
+          <li>Llamada y copia del contacto de emergencia desde el detalle del cuidador, y tarjeta de ayuda en el horario del paciente.</li>
+          <li>Estadísticas de adherencia, historial de tomas y estado por dosis.</li>
         </ul>
       </div>
     </section>
@@ -445,30 +710,33 @@
         <h2 id="creditos-titulo">Créditos y contacto</h2>
         <div class="credits">
           <p><strong>Proyecto académico de la UTS.</strong></p>
-          <p>Equipo: <strong>[David Steven Patiño Rueda]</strong></p>
-          <p>Contacto: <strong>[dspatino@uts.edu.co]</strong></p>
+          <p>Equipo: <strong>[NOMBRES DEL EQUIPO]</strong></p>
+          <p>Contacto: <strong>[CORREO DE CONTACTO]</strong> (texto; sin enlace de correo en este borrador)</p>
           <p>Hecho con Flutter y Firebase.</p>
         </div>
         <p class="todo">Marcadores pendientes de completar antes de publicar: nombres del equipo y correo de contacto.</p>
         <p>Esta página no usa cookies, analíticas ni recursos externos. Las fuentes son las del sistema.</p>
       </div>
     </section>
+
+    <p class="back-to-top"><a href="#inicio">Volver arriba</a></p>
   </main>
 
   <footer class="site-footer">
     <div class="wrap">
       <p><strong>MediPlan · Pastillero familiar</strong></p>
+      <p>Equipo: [NOMBRES DEL EQUIPO] · 2026</p>
       <p>Proyecto académico de la UTS. No es un dispositivo médico y no reemplaza la indicación de un médico.</p>
       <nav aria-label="Navegación del pie de página">
         <ul class="footer-nav">
           <li><a href="#inicio">Inicio</a></li>
-          <li><a href="#manual-cuidador">Manual del cuidador</a></li>
-          <li><a href="#manual-paciente">Manual del paciente</a></li>
-          <li><a href="#ajustes">Ajustes</a></li>
-          <li><a href="#privacidad">Privacidad</a></li>
-          <li><a href="#creditos">Créditos</a></li>
+          <li><a href="#manual-cuidador">Manual</a></li>
+          <li><a href="privacidad.html">Privacidad</a></li>
+          <li><a href="#creditos">Contacto</a></li>
+          <li><a href="#top">Volver arriba</a></li>
         </ul>
       </nav>
+      <p>Contacto: [CORREO DE CONTACTO] (texto, sin enlace de correo mientras sea un marcador).</p>
       <p>Sin cookies, sin analíticas y sin recursos externos.</p>
       <p class="no-print">Para imprimir el manual, usa la opción Imprimir de tu navegador.</p>
     </div>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="titulo descripcion">
+  <title id="titulo">MediPlan</title>
+  <desc id="descripcion">Reloj verde con una cápsula y una flecha circular.</desc>
+  <circle cx="32" cy="32" r="31" fill="#2E7D32"/>
+  <circle cx="32" cy="32" r="27" fill="#4CAF50"/>
+  <g fill="#FFFFFF">
+    <rect x="30.5" y="7" width="3" height="6" rx="1.5"/>
+    <rect x="30.5" y="51" width="3" height="6" rx="1.5"/>
+    <rect x="7" y="30.5" width="6" height="3" rx="1.5"/>
+    <rect x="51" y="30.5" width="6" height="3" rx="1.5"/>
+  </g>
+  <g transform="rotate(-35 32 32)">
+    <rect x="16" y="25" width="32" height="14" rx="7" fill="#FFFFFF"/>
+    <path d="M32 25v14" stroke="#4CAF50" stroke-width="2"/>
+    <path d="M23 25h9v14h-9a7 7 0 0 1 0-14Z" fill="#E8F5E9"/>
+  </g>
+  <path d="M17 43c3.5 5.5 10 8.5 17 7.5 4.6-.7 8.4-3 10.8-6.3" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="m43 39 6 3.5-4.5 5.5" fill="#FFFFFF"/>
+</svg>

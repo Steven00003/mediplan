@@ -1,3 +1,5 @@
+import 'estado_dispositivo.dart';
+
 /// Representa a un paciente en la colección [pacientes].
 ///
 /// El vínculo entre el dispositivo del paciente y su perfil se resuelve
@@ -25,6 +27,10 @@ class Paciente {
   final String? fotoBase64;
   final String? cuidadorFcmToken;
 
+  /// Reporte del celular del paciente. Es `null` en documentos antiguos o
+  /// mientras el paciente no haya abierto esta versión de la app.
+  final EstadoDispositivo? estadoDispositivo;
+
   const Paciente({
     required this.id,
     required this.nombre,
@@ -36,6 +42,7 @@ class Paciente {
     this.contactoEmergencia,
     this.fotoBase64,
     this.cuidadorFcmToken,
+    this.estadoDispositivo,
   });
 
   Paciente copyWith({
@@ -45,6 +52,7 @@ class Paciente {
     String? contactoEmergencia,
     String? fotoBase64,
     String? cuidadorFcmToken,
+    EstadoDispositivo? estadoDispositivo,
   }) {
     return Paciente(
       id: id,
@@ -58,6 +66,7 @@ class Paciente {
       contactoEmergencia: contactoEmergencia ?? this.contactoEmergencia,
       fotoBase64: fotoBase64 ?? this.fotoBase64,
       cuidadorFcmToken: cuidadorFcmToken ?? this.cuidadorFcmToken,
+      estadoDispositivo: estadoDispositivo ?? this.estadoDispositivo,
     );
   }
 
@@ -75,6 +84,7 @@ class Paciente {
       contactoEmergencia: map['contactoEmergencia'] as String?,
       fotoBase64: map['fotoBase64'] as String?,
       cuidadorFcmToken: map['cuidadorFcmToken'] as String?,
+      estadoDispositivo: EstadoDispositivo.fromValor(map['estadoDispositivo']),
     );
   }
 
@@ -90,6 +100,9 @@ class Paciente {
       'contactoEmergencia': contactoEmergencia,
       'fotoBase64': fotoBase64,
       'cuidadorFcmToken': cuidadorFcmToken,
+      // `estadoDispositivo` NO se incluye a propósito: lo escribe únicamente el
+      // dispositivo del paciente con `actualizarEstadoDispositivo`. Así una
+      // edición del cuidador no lo borra ni lo pisa.
     };
   }
 }

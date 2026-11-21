@@ -74,7 +74,7 @@ Ninguna. Esta colección es la **raíz**: el resto la apunta, no al revés.
 ### ID del documento
 
 = **autogenerado por Firestore**. `crearPaciente` hace `.add(...)`
-(`firestore_service.dart:93`).
+(`firestore_service.dart:124`).
 
 `Paciente.toMap()` (`paciente.dart:81-93`) **no** incluye el campo `id`: el `id`
 del modelo es solo el ID del documento, y se rellena al leer con
@@ -96,30 +96,48 @@ del modelo es solo el ID del documento, y se rellena al leer con
 
 El modelo completo está en `paciente.dart:17-26` y `fromMap`/`toMap` en
 `paciente.dart:64-93`. `crearPaciente` escribe los opcionales como `null` cuando
-no se rellenan (`firestore_service.dart:79-109`).
+no se rellenan (`firestore_service.dart:110-154`).
+
+**Edición de la ficha.** El botón de lápiz del detalle abre
+`EditarPacienteScreen` y guarda con `actualizarFichaPaciente`
+(`firestore_service.dart`). Ese `update` escribe **solo** `nombre`, `edad`,
+`condicion`, `contactoEmergencia` y `fotoBase64`; nunca `cuidadorId`,
+`codigoVinculacion` ni `dispositivoVinculadoId`. Los campos opcionales vacíos se
+guardan como `null` (la foto también se puede quitar). El teléfono se escribe
+sin espacios y conserva el `+` inicial si lo tiene. La validación vive en
+`validacion_ficha_paciente.dart` y la comparten el alta y la edición.
 
 **`codigoVinculacion` en detalle**
 
 - Formato `MEDI-XXXXXX` sobre el alfabeto `'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'`
-  (`vinculacion_service.dart:22`), sin `0/O` ni `1/I` para copiarlo a mano.
-- Regex assertion en `test/widget_test.dart:31`:
+  (`vinculacion_service.dart:24`), sin `0/O` ni `1/I` para copiarlo a mano.
+- Regex assertion en `test/widget_test.dart:171-174`:
   `^MEDI-[A-HJ-NP-Z2-9]{6}$`.
 - `generarCodigo()` (`vinculacion_service.dart:37-44`) usa `Random.secure()`.
   **No** es un LCG hecho a mano.
 - **Solo es único por cuidador.** El chequeo de duplicados usa
-  `buscarPacientePorCodigo(codigo, uid)` (`vinculacion_service.dart:63`), que
-  filtra por el `cuidadorId` propio. Dos cuidadores pueden tener el mismo código,
-  y `vincularDispositivoPorCodigo` (con `limit(1)` y sin filtro de `cuidadorId`)
-  devolvería el primero que responda el servidor.
+  `buscarPacientePorCodigo(codigo, uid)` (`vinculacion_service.dart:55-73`), que
+  filtra por el `cuidadorId` propio. Ahora el `create` de `vinculos` exige
+  `!exists(...)` (`firestore.rules:88-92`), así que un choque entre cuidadores ya
+  no repunta el índice: la creación del paciente falla y se revierte
+  (`firestore_service.dart:141-152`). El botón "Generar código nuevo" sí
+  reintenta (`vinculacion_service.dart:87-99`).
 - Se normaliza con `.trim().toUpperCase()` antes de consultar
-  (`firestore_service.dart:578` y `:603`).
+  (`firestore_service.dart:793` y `vinculacion_service.dart:111`).
+- **Vencimiento.** Cada vínculo nuevo guarda
+  `expiraEn = ahora + duracionCodigoVinculacion` (72 h,
+  `constants.dart:18`, `firestore_service.dart:142-145`). Los documentos viejos
+  sin `expiraEn` se consideran vigentes (`estado_codigo_vinculacion.dart:10-15`).
+  Un paciente no puede usar un código vencido salvo que ya sea el dispositivo
+  vinculado (reingreso) (`firestore_service.dart:805-813`,
+  `vinculacion_service.dart:115-116`).
 
 **`dispositivoVinculadoId` — todos los valores posibles**
 
 | Valor | Significado | Quién lo escribe |
 |---|---|---|
-| `''` | **Libre**: el paciente puede vincularse | `crearPaciente` (`firestore_service.dart:79`) y `desvincularDispositivo` (`:656-672`) |
-| `<uid anónimo>` | **Vinculado** a ese teléfono | `vincularDispositivoPorCodigo` (`:599-650`) |
+| `''` | **Libre**: el paciente puede vincularse | `crearPaciente` (`firestore_service.dart:134`) y `desvincularDispositivo` (`:912-931`) |
+| `<uid anónimo>` | **Vinculado** a ese teléfono | `vincularDispositivoPorCodigo` (`:789-852`) |
 | `null` | Solo documentos creados **antes** del fix | nadie (legacy) |
 
 > **Trampa de datos.** `estaLibre()` (reglas, líneas 20-22) acepta `null` **o**
@@ -127,7 +145,7 @@ no se rellenan (`firestore_service.dart:79-109`).
 > `dispositivoVinculadoId == ''`: resuelve el código en `vinculos`, hace un
 > `update` directo y deja que la regla valide el documento. Por eso un documento
 > legado con `null` también se puede vincular. `crearPaciente` sigue escribiendo
-> `''` explícitamente (`firestore_service.dart:103`).
+> `''` explícitamente (`firestore_service.dart:134`).
 
 > **Nunca** escribas ahí el `disp-<micros>` de `LocalStore.getDispositivoId()`
 > (`local_store.dart:25-33`): las reglas lo comparan contra `request.auth.uid`,
@@ -144,10 +162,10 @@ no se rellenan (`firestore_service.dart:79-109`).
 
 | Operación | Condición | Línea |
 |---|---|---|
-| read | `isAuthenticated()` **y** (uid == `cuidadorId` **o** uid == `dispositivoVinculadoId`) | 30-32 |
-| create | `isAuthenticated()` **y** `cuidadorId == request.auth.uid` **y** `codigoVinculacion != null` **y** `nombre != null` | 33-36 |
-| update | `isAuthenticated()` **y** (uid == `cuidadorId` **o** (el nuevo `dispositivoVinculadoId` == `request.auth.uid` **y** el doc estaba libre **y** `codigoVinculacion` sin cambios **y** `cuidadorId` sin cambios)) | 37-44 |
-| delete | `isAuthenticated()` **y** uid == `cuidadorId` | 45-46 |
+| read | `isAuthenticated()` **y** (uid == `cuidadorId` **o** uid == `dispositivoVinculadoId`) | 37-39 |
+| create | `isAuthenticated()` **y** `cuidadorId == request.auth.uid` **y** `codigoVinculacion != null` **y** `nombre != null` | 40-43 |
+| update | `isAuthenticated()` **y** (uid == `cuidadorId` **o** (el nuevo `dispositivoVinculadoId` == `request.auth.uid` **y** el doc estaba libre **y** solo cambia `dispositivoVinculadoId` **y** el vínculo de `codigoVinculacion` no está vencido)) | 44-54 |
+| delete | `isAuthenticated()` **y** uid == `cuidadorId` | 55-56 |
 
 O sea: el paciente (sesión anónima) **no puede** crear ni borrar su propio
 documento, y **no puede** desvincularse. Solo el cuidador dueño libera el
@@ -155,33 +173,36 @@ código, llamando a `desvincularDispositivo` (que escribe `''`). La rama de
 lectura ya **no** incluye documentos libres: el paciente llega al documento por
 el índice `vinculos/{codigo}` y, tras el `update`, la lectura directa ya está
 autorizada por `dispositivoVinculadoId`. `estaLibre` (líneas 20-22) solo se usa
-en la condición de `update`.
+en la condición de `update`. La condición del paciente usa
+`vinculoVigenteDelPaciente` (`firestore.rules:24-29`), que lee
+`vinculos/{codigoVinculacion}` con `get()` y acepta `expiraEn` ausente o
+posterior a `request.time`.
 
 ### Cómo consultar — lo importante
 
-La regla de `read` (30-32) es una **disyunción de dos ramas**, y Firestore solo
+La regla de `read` (37-39) es una **disyunción de dos ramas**, y Firestore solo
 autoriza una *query* si los filtros de la propia query pueden **demostrar** que
 todo documento devuelto cumple la regla. Por eso los filtros "redundantes"
 **no** se pueden sacar:
 
 | Método | Filtros | Qué rama demuestra | Si sacás el filtro |
 |---|---|---|---|
-| `streamPacientesDelCuidador` (`:40-48`) | `cuidadorId == uid` | rama 1 | pierde todos tus pacientes |
-| `buscarPacientePorCodigo` (`:576-584`) | `codigoVinculacion ==` + `cuidadorId == uid` + `limit(1)` | rama 1 | **403** "Missing or insufficient permissions", incluso para pacientes propios |
-| `streamPacientePorDispositivo` (`:50-59`, **muerto**) | `dispositivoVinculadoId ==` + `limit(1)` | rama 2 | — |
-| `getPacienteVinculadoParaReingreso` (`:549-563`) | `dispositivoVinculadoId == uid` | rama 2 | **403**; no puede demostrar que el doc es del dispositivo |
+| `streamPacientesDelCuidador` (`:71-79`) | `cuidadorId == uid` | rama 1 | pierde todos tus pacientes |
+| `buscarPacientePorCodigo` (`:763-771`) | `codigoVinculacion ==` + `cuidadorId == uid` + `limit(1)` | rama 1 | **403** "Missing or insufficient permissions", incluso para pacientes propios |
+| `streamPacientePorDispositivo` (`:81-90`, **muerto**) | `dispositivoVinculadoId ==` + `limit(1)` | rama 2 | — |
+| `getPacienteVinculadoParaReingreso` (`:736-750`) | `dispositivoVinculadoId == uid` | rama 2 | **403**; no puede demostrar que el doc es del dispositivo |
 
 - **Con demostrar una sola rama alcanza**; no hacen falta las dos.
-- `getPaciente` (`:69-76`) y `streamPacienteDoc` (`:63-67`) usan `.doc(id)`: son
-  accesos directos, la regla se evalúa sobre el documento, no hay filtro que
+- `getPaciente` (`:100-107`) y `streamPacienteDoc` (`:94-98`) usan `.doc(id)`:
+  son accesos directos, la regla se evalúa sobre el documento, no hay filtro que
   agregar.
-- `vincularDispositivoPorCodigo` (`:599-650`) **no** consulta pacientes por
-  `dispositivoVinculadoId == ''`: lee `vinculos/{codigo}`, hace el `update`
-  directo y, si la escritura funciona, ya puede leer el documento porque el
-  nuevo `dispositivoVinculadoId` es su propio UID.
+- `vincularDispositivoPorCodigo` (`:789-852`) **no** consulta pacientes por
+  `dispositivoVinculadoId == ''`: lee `vinculos/{codigo}`, comprueba reingreso y
+  vencimiento, hace el `update` directo y, si la escritura funciona, ya puede
+  leer el documento porque el nuevo `dispositivoVinculadoId` es su propio UID.
 - **No hace falta índice compuesto**: solo hay igualdades y `limit`, sin
   `orderBy`.
-- `vincularDispositivoAPaciente` (`:126-133`) está **muerto** y sería rechazado
+- `vincularDispositivoAPaciente` (`:158-165`) está **muerto** y sería rechazado
   igual: quien llama no es el dueño y el token local no es `request.auth.uid`.
 
 ---
@@ -194,14 +215,16 @@ todo documento devuelto cumple la regla. Por eso los filtros "redundantes"
 `MEDI-XXXXXX`. No es autogenerado. El índice existe para que el dispositivo
 anónimo pueda resolver un código sin poder leer todos los pacientes libres.
 `crearPaciente` lo escribe con `.set()` después de crear el paciente
-(`firestore_service.dart:111-113`) y `desvincularDispositivo` lo vuelve a
-escribir con el código normalizado (`:668-670`).
+(`firestore_service.dart:142-145`), `reemplazarCodigoVinculacion` crea el nuevo
+en la transacción (`:897`) y `desvincularDispositivo` lo vuelve a escribir con
+el código normalizado (`:924-927`).
 
 ### Campos
 
 | Campo | Tipo | ¿Null / vacío? | Significado |
 |---|---|---|---|
 | `pacienteId` | `String` | Nunca null | → `pacientes/{id}` |
+| `expiraEn` | `Timestamp` | Puede faltar en documentos viejos | Fecha en que el código deja de servir. Ausente = vigente por compatibilidad |
 
 ### Referencias
 
@@ -213,28 +236,52 @@ escribir con el código normalizado (`:668-670`).
 
 | Operación | Condición | Línea |
 |---|---|---|
-| read | `isAuthenticated()` | 71 |
-| create, update | `isAuthenticated()` **y** `pacienteId != null` **y** `esCuidadorDelPaciente(pacienteId)` | 72-74 |
-| delete | `isAuthenticated()` **y** `pacienteId != null` **y** `esCuidadorDelPaciente(pacienteId)` | 75-77 |
+| get | `isAuthenticated()` | 87 |
+| create | `isAuthenticated()` **y** `pacienteId != null` **y** `expiraEn is timestamp` **y** `!exists(vinculos/{codigo})` **y** `esCuidadorDelPaciente(pacienteId)` | 88-92 |
+| update | `isAuthenticated()` **y** `pacienteId` no cambia **y** `esCuidadorDelPaciente(resource.data.pacienteId)` | 95-98 |
+| delete | `isAuthenticated()` **y** `pacienteId != null` **y** `esCuidadorDelPaciente(pacienteId)` | 99-101 |
 
-Cualquier usuario autenticado puede **leer** un código (lo necesita el paciente
-anónimo para resolverlo), pero solo el cuidador dueño del paciente puede
-crearlo, actualizarlo o borrarlo. `esCuidadorDelPaciente` está en las líneas
-10-13.
+Cualquier usuario autenticado puede **obtener** un código por ID (`get`), porque
+el paciente anónimo lo necesita para resolverlo. `allow get` **no** incluye
+`list`: nadie puede listar la colección completa. El `create` no puede pisar un
+documento existente (`!exists`), así que un código ajeno no se puede repuntar.
+El `update` solo permite reescribir el mismo `pacienteId` y exige ser el
+cuidador del paciente al que ya apuntaba, lo que evita secuestrar el vínculo de
+otro cuidador. El `delete` queda limitado al cuidador dueño.
+`esCuidadorDelPaciente` está en las líneas 10-13.
 
 ### Cómo consultar
 
 | Método | Filtros | Índice |
 |---|---|---|
-| `vincularDispositivoPorCodigo` (`firestore_service.dart:599-650`) | `.doc(codigoNormalizado).get()` | ninguno: acceso directo |
-| `crearPaciente` (`:111-113`) | `.doc(codigo).set(...)` | ninguno |
-| `desvincularDispositivo` (`:668-670`) | `.doc(codigo).set(...)` | ninguno |
+| `vincularDispositivoPorCodigo` (`firestore_service.dart:789-852`) | `.doc(codigoNormalizado).get()` | ninguno: acceso directo |
+| `crearPaciente` (`:142-145`) | `.doc(codigo).set(...)` | ninguno |
+| `reemplazarCodigoVinculacion` (`:854-910`) | transacción con `.doc(nuevo).get()` y `.doc(viejo).get()` | ninguno: acceso directo |
+| `desvincularDispositivo` (`:924-927`) | `.doc(codigo).set(...)` | ninguno |
+
+### Generar un código nuevo
+
+1. El botón solo aparece si `pacientes/{id}.dispositivoVinculadoId` está vacío
+   (`detalle_paciente_screen.dart:942-956`). Si está vinculado, se explica que
+   primero hay que desvincular.
+2. El cuidador confirma el diálogo; `VinculacionService.regenerarCodigoVinculacion`
+   genera un código y llama a `FirestoreService.reemplazarCodigoVinculacion`
+   (`vinculacion_service.dart:87-99`).
+3. La transacción lee el paciente y el código candidato, rechaza si el paciente
+   ya está vinculado o si el código existe, crea `vinculos/{nuevo}` con
+   `expiraEn`, actualiza `pacientes/{id}.codigoVinculacion` y borra el vínculo
+   viejo (`firestore_service.dart:854-910`).
+4. La tarjeta muestra el vencimiento leyendo `vinculos/{codigo}` con un stream,
+   permite copiar el código y muestra "Código vencido" cuando corresponde
+   (`detalle_paciente_screen.dart:797-1009`).
 
 **Código repetido entre cuidadores.** El chequeo de unicidad de
 `generarCodigo` solo mira los pacientes del propio cuidador
-(`vinculacion_service.dart:60-65`). Dos cuidadores pueden generar el mismo
-código; el último `crearPaciente` que escriba `vinculos/{codigo}` repunta el
-índice al paciente nuevo. No hay unicidad global.
+(`vinculacion_service.dart:55-73`). Dos cuidadores pueden generar el mismo
+código, pero el `create` de `vinculos` exige `!exists(...)`: el segundo
+`crearPaciente` falla al escribir el vínculo y borra el paciente recién creado
+(`firestore_service.dart:141-152`). El botón "Generar código nuevo" sí reintenta
+con otro código (`vinculacion_service.dart:87-99`). No hay unicidad global.
 
 ---
 

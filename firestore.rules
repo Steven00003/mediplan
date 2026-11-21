@@ -21,6 +21,53 @@ service cloud.firestore {
       return dispositivo == null || dispositivo == '';
     }
 
+    function vinculoVigenteDelPaciente(pacienteId, codigo) {
+      let vinculo = get(/databases/$(database)/documents/vinculos/$(codigo));
+      let expiraEn = vinculo.data.get('expiraEn', null);
+      return vinculo.data.pacienteId == pacienteId
+          && (expiraEn == null || expiraEn > request.time);
+    }
+
+    // Único mapa que el celular del paciente puede escribir en su documento.
+    // Se validan las claves exactas, el timestamp del servidor y los tipos/tamaños
+    // para que el dispositivo no pueda modificar la ficha ni los vínculos.
+    function estadoDispositivoValido() {
+      let estado = request.resource.data.get('estadoDispositivo', null);
+      return estado is map
+          && estado.keys().hasAll([
+               'ultimaSincronizacion',
+               'alarmasProgramadas',
+               'notificacionesPermitidas',
+               'bateriaSinRestricciones',
+               'versionAndroid',
+               'fabricante',
+               'versionApp'
+             ])
+          && estado.keys().hasOnly([
+               'ultimaSincronizacion',
+               'alarmasProgramadas',
+               'notificacionesPermitidas',
+               'bateriaSinRestricciones',
+               'versionAndroid',
+               'fabricante',
+               'versionApp'
+             ])
+          && estado.get('ultimaSincronizacion', null) == request.time
+          && estado.get('alarmasProgramadas', -1) is int
+          && estado.get('alarmasProgramadas', -1) >= 0
+          && estado.get('alarmasProgramadas', -1) <= 10000
+          && estado.get('notificacionesPermitidas', null) is bool
+          && estado.get('bateriaSinRestricciones', null) is bool
+          && estado.get('versionAndroid', -1) is int
+          && estado.get('versionAndroid', -1) >= 0
+          && estado.get('versionAndroid', -1) <= 100
+          && estado.get('fabricante', null) is string
+          && estado.get('fabricante', '').size() <= 40
+          && estado.get('versionApp', null) is string
+          && estado.get('versionApp', '').size() > 0
+          && estado.get('versionApp', '').size() <= 40;
+    }
+
     match /usuarios/{uid} {
       allow read, create, update: if isAuthenticated() && request.auth.uid == uid;
       allow delete: if false;
@@ -39,8 +86,17 @@ service cloud.firestore {
           ||
           (request.resource.data.dispositivoVinculadoId == request.auth.uid
            && estaLibre(resource.data.dispositivoVinculadoId)
-           && request.resource.data.codigoVinculacion == resource.data.codigoVinculacion
-           && request.resource.data.cuidadorId == resource.data.cuidadorId)
+           && request.resource.data.diff(resource.data)
+                .affectedKeys()
+                .hasOnly(['dispositivoVinculadoId'])
+           && vinculoVigenteDelPaciente(
+                pacienteId, resource.data.codigoVinculacion))
+          ||
+          (esDispositivoVinculado(pacienteId)
+           && request.resource.data.diff(resource.data)
+                .affectedKeys()
+                .hasOnly(['estadoDispositivo'])
+           && estadoDispositivoValido())
       );
       allow delete: if isAuthenticated()
                     && request.auth.uid == resource.data.cuidadorId;
@@ -72,10 +128,20 @@ service cloud.firestore {
     }
 
     match /vinculos/{codigo} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated()
-                            && request.resource.data.pacienteId != null
-                            && esCuidadorDelPaciente(request.resource.data.pacienteId);
+      // `get` (no `read`): el paciente resuelve un código por ID, pero nadie
+      // puede listar toda la colección.
+      allow get: if isAuthenticated();
+      allow create: if isAuthenticated()
+                    && request.resource.data.pacienteId != null
+                    && request.resource.data.expiraEn is timestamp
+                    && !exists(/databases/$(database)/documents/vinculos/$(codigo))
+                    && esCuidadorDelPaciente(request.resource.data.pacienteId);
+      // Reescribir el mismo vínculo (p. ej. al desvincular) sí; repuntarlo a
+      // otro paciente o tocar el de otro cuidador, no.
+      allow update: if isAuthenticated()
+                    && resource.data.pacienteId != null
+                    && request.resource.data.pacienteId == resource.data.pacienteId
+                    && esCuidadorDelPaciente(resource.data.pacienteId);
       allow delete: if isAuthenticated()
                     && resource.data.pacienteId != null
                     && esCuidadorDelPaciente(resource.data.pacienteId);

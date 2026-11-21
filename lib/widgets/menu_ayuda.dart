@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../screens/paciente/comprobar_celular_screen.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_page_route.dart';
 import '../theme/app_tokens.dart';
 import '../utils/abrir_landing.dart';
 import 'acerca_de.dart';
@@ -9,7 +11,10 @@ import 'acerca_de.dart';
 class AyudaBoton extends StatelessWidget {
   final Color? color;
 
-  const AyudaBoton({super.key, this.color});
+  /// En el flujo del paciente añade "Comprobar mi celular" al menú.
+  final bool esPaciente;
+
+  const AyudaBoton({super.key, this.color, this.esPaciente = false});
 
   @override
   Widget build(BuildContext context) {
@@ -20,14 +25,17 @@ class AyudaBoton extends StatelessWidget {
       child: IconButton(
         icon: Icon(Icons.help_outline, color: color ?? AppColors.onGreen),
         tooltip: 'Ayuda y acerca de',
-        onPressed: () => mostrarMenuAyuda(context),
+        onPressed: () => mostrarMenuAyuda(context, esPaciente: esPaciente),
       ),
     );
   }
 }
 
-/// Menú con las dos opciones de ayuda de la app.
-Future<void> mostrarMenuAyuda(BuildContext context) {
+/// Menú con las opciones de ayuda de la app.
+///
+/// [esPaciente] añade el acceso a la revisión de permisos, guía por marca y
+/// prueba de alarma del celular del paciente.
+Future<void> mostrarMenuAyuda(BuildContext context, {bool esPaciente = false}) {
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -48,6 +56,24 @@ Future<void> mostrarMenuAyuda(BuildContext context) {
               style: AppType.title.copyWith(color: AppColors.onGreen),
             ),
           ),
+          if (esPaciente)
+            ListTile(
+              leading: const Icon(
+                Icons.phone_android,
+                color: AppColors.primaryStrong,
+              ),
+              title: const Text('Comprobar mi celular'),
+              subtitle: const Text(
+                'Permisos, guía por marca y prueba de alarma',
+              ),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                if (!context.mounted) return;
+                Navigator.of(context).push(
+                  AppPageRoute(builder: (_) => const ComprobarCelularScreen()),
+                );
+              },
+            ),
           ListTile(
             leading: const Icon(
               Icons.menu_book_outlined,

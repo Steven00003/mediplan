@@ -25,6 +25,7 @@ class MainActivity : FlutterActivity() {
         // permiso de pantalla completa.
         const val CANAL_SISTEMA = "com.mediplan.mediplan/diagnostico"
         const val METODO_SDK_INT = "androidSdkInt"
+        const val METODO_FABRICANTE = "fabricante"
         const val METODO_ZONA_HORARIA = "timeZoneId"
         const val METODO_PUEDE_PANTALLA_COMPLETA = "canUseFullScreenIntent"
         const val METODO_ESTADO_ENERGIA = "estadoEnergia"
@@ -33,6 +34,7 @@ class MainActivity : FlutterActivity() {
         const val METODO_ABRIR_AJUSTES_BATERIA = "abrirAjustesBateria"
         const val METODO_ABRIR_AJUSTES_ALARMAS_EXACTAS =
             "abrirAjustesAlarmasExactas"
+        const val METODO_ABRIR_DETALLES_APP = "abrirDetallesApp"
 
         // Flags de ventana para que la alarma se vea sobre el bloqueo.
         const val CANAL_VENTANA_ALARMA = "com.mediplan.mediplan/ventana_alarma"
@@ -70,6 +72,7 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     METODO_SDK_INT -> result.success(Build.VERSION.SDK_INT)
+                    METODO_FABRICANTE -> result.success(Build.MANUFACTURER ?: "")
                     // java.util.TimeZone.getDefault().id devuelve el ID IANA
                     // real del dispositivo (p. ej. America/Bogota).
                     METODO_ZONA_HORARIA ->
@@ -95,6 +98,10 @@ class MainActivity : FlutterActivity() {
                     }
                     METODO_ABRIR_AJUSTES_ALARMAS_EXACTAS -> {
                         abrirAjustesAlarmasExactas()
+                        result.success(null)
+                    }
+                    METODO_ABRIR_DETALLES_APP -> {
+                        abrirDetallesApp()
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -222,6 +229,15 @@ class MainActivity : FlutterActivity() {
             )
         }
         abrirAjustes(intent)
+    }
+
+    private fun abrirDetallesApp() {
+        startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName"),
+            ),
+        )
     }
 
     private fun abrirAjustesAlarmasExactas() {

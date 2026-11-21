@@ -7,11 +7,13 @@ import 'package:flutter/material.dart';
 
 import '../models/paciente.dart';
 import '../models/tratamiento.dart';
+import '../services/estado_dispositivo_service.dart';
 import '../services/firestore_service.dart';
 import '../services/local_store.dart';
 import '../services/omitidas_service.dart';
 import '../services/notificaciones_service.dart';
 import '../services/vinculacion_service.dart';
+import '../utils/errores_amigables.dart';
 import '../utils/reingreso_paciente.dart';
 import '../utils/vigencia_tratamiento.dart';
 
@@ -24,6 +26,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   final FirestoreService _fs = FirestoreService();
   final NotificacionesService _notif = NotificacionesService();
   final OmitidasService _omitidas = OmitidasService();
+  final EstadoDispositivoService _estadoDispositivo =
+      EstadoDispositivoService();
 
   /// Revisa las tomas olvidadas mientras el rol paciente está activo.
   ///
@@ -38,6 +42,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Evita rearmes solapados si el tick de 60 s coincide con una vuelta del
   /// fondo, un reingreso o una reprogramación completa.
   bool _rearmandoAlarmas = false;
+
+  /// Evita dos reportes de `estadoDispositivo` simultáneos.
+  bool _reportandoEstadoDispositivo = false;
 
   /// Última firma del rearme: fecha local, paciente y tratamientos relevantes.
   DateTime? _ultimaFechaRearme;
@@ -97,6 +104,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_reconciliarOmitidas(forzar: true));
+      unawaited(_reportarEstadoDispositivo());
     }
   }
 
@@ -119,14 +127,22 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (pacienteId == null || _alarmaAbierta) return;
     try {
       await _omitidas.reconciliar(pacienteId, forzar: forzar);
-    } catch (_) {
+      await LocalStore.limpiarUltimoErrorSincronizacion();
+    } catch (e) {
       // Reconciliar es una mejora best-effort: un fallo puntual (sin red, sin
       // índice compuesto aún) no debe sacar al paciente de la app. El siguiente
-      // tick reintenta.
+      // tick reintenta. El error queda visible en "Comprobar mi celular".
+      await _registrarErrorSincronizacion(
+        e,
+        'No se pudieron actualizar las tomas pendientes',
+      );
     }
     // La ventana de alarmas puntuales se rearma en cada tick (60 s), al abrir
     // la app y al volver del fondo. Es idempotente y no toca avisos/tardíos.
-    await _rearmarVentanaAlarmas();
+    final rearmado = await _rearmarVentanaAlarmas();
+    // Si el rearme cambió el número de alarmas pendientes, el cuidador debe ver
+    // el nuevo valor sin esperar a que el paciente vuelva a abrir la app.
+    if (rearmado) unawaited(_reportarEstadoDispositivo());
   }
 
   /// Rearma la ventana móvil de alarmas puntuales del paciente vinculado.
@@ -135,9 +151,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// cambios hechos por el cuidador mientras la app estaba abierta. Si ya hay
   /// un rearme en curso, se ignora este para no cancelar y reprogramar dos
   /// veces a la vez.
-  Future<void> _rearmarVentanaAlarmas() async {
+  Future<bool> _rearmarVentanaAlarmas() async {
     final pacienteId = _pacienteVinculado?.id;
-    if (pacienteId == null || _alarmaAbierta || _rearmandoAlarmas) return;
+    if (pacienteId == null || _alarmaAbierta || _rearmandoAlarmas) {
+      return false;
+    }
 
     _rearmandoAlarmas = true;
     try {
@@ -157,7 +175,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
             tratamientos: tratamientos,
             ahora: ahora,
           )) {
-        return;
+        return false;
       }
 
       await _notif.rearmarAlarmasDeTratamientos(
@@ -167,22 +185,43 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       _ultimaFechaRearme = fecha;
       _ultimoPacienteRearme = pacienteId;
       _firmaTratamientosRearme = firma;
+      return true;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('No se pudo rearmar la ventana de alarmas: $e');
       }
+      await _registrarErrorSincronizacion(
+        e,
+        'No se pudieron rearmar las alarmas',
+      );
+      return false;
     } finally {
       _rearmandoAlarmas = false;
+    }
+  }
+
+  Future<void> _registrarErrorSincronizacion(
+    Object error,
+    String contexto,
+  ) async {
+    try {
+      await LocalStore.guardarUltimoErrorSincronizacion(
+        mensajeErrorAmigable(error, contexto: contexto),
+      );
+    } catch (_) {
+      // Es solo informativo para la pantalla de ayuda: nunca debe romper el
+      // flujo de alarmas.
     }
   }
 
   String _firmaTratamientos(List<Tratamiento> tratamientos) {
     final partes = <String>[];
     for (final tratamiento in tratamientos) {
-      final horarios = tratamiento.horarios
-          .map((h) => '${h.hora}:${([...h.dias]..sort()).join(',')}')
-          .toList()
-        ..sort();
+      final horarios =
+          tratamiento.horarios
+              .map((h) => '${h.hora}:${([...h.dias]..sort()).join(',')}')
+              .toList()
+            ..sort();
       partes.add(
         [
           tratamiento.id,
@@ -289,7 +328,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         await desvincularPaciente();
         return false;
       }
-      // Mantener fresca la vinculación recordada con los datos del servidor.
+      // Mantener frescos los datos locales con lo que acaba de leer el
+      // servidor: si el cuidador editó la ficha, el saludo "Entrar como
+      // <nombre>" debe reflejar el nombre nuevo en la próxima apertura.
+      await LocalStore.guardarPacienteVinculado(paciente.id, paciente.nombre);
       final recordada = await LocalStore.getUltimaVinculacion();
       await LocalStore.guardarUltimaVinculacion(
         pacienteId: paciente.id,
@@ -302,10 +344,23 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
     _pacienteVinculado = paciente;
     _arrancarTimerOmitidas();
+
+    // Si este teléfono fue cuidador y la migración canceló sus alarmas, al
+    // volver a entrar como paciente se reprograman todas una sola vez.
+    final pendienteReprogramar =
+        await LocalStore.getPendienteReprogramarAlarmas();
+    if (pendienteReprogramar) {
+      final ok = await _programarNotificacionesDePaciente(paciente.id);
+      if (ok) {
+        await LocalStore.limpiarPendienteReprogramarAlarmas();
+      }
+    }
+
     // Arranque en frío: es el único punto que cubre de forma fiable el caso de
     // un paciente que estuvo días sin abrir la app (no hay ningún listener de
     // notificaciones: tocar la alarma del sistema solo lanza la app).
     unawaited(_reconciliarOmitidas(forzar: true));
+    unawaited(_reportarEstadoDispositivo());
     return true;
   }
 
@@ -357,6 +412,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _omitidas.invalidar();
     _arrancarTimerOmitidas();
     unawaited(_reconciliarOmitidas(forzar: true));
+    unawaited(_reportarEstadoDispositivo());
     _escucharPacienteDoc(paciente.id);
     notifyListeners();
   }
@@ -438,8 +494,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await _activarPaciente(paciente, codigoRecordado: recordada.codigo);
       // Se reprograman todas las alarmas después de validar; si falla la
       // consulta de tratamientos, el reingreso no se pierde.
-      await _programarNotificacionesDePaciente(paciente.id);
+      final programado = await _programarNotificacionesDePaciente(paciente.id);
+      if (programado) {
+        await LocalStore.limpiarPendienteReprogramarAlarmas();
+      }
       unawaited(_reconciliarOmitidas(forzar: true));
+      unawaited(_reportarEstadoDispositivo());
       return ResultadoReingresoPaciente.exito;
     } on FirebaseException catch (e) {
       if (e.code == 'permission-denied') {
@@ -483,7 +543,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// cada horario. La felicitación no se programa: se muestra al confirmar.
   /// Es best-effort: si la lectura de tratamientos falla, no se cancelan las
   /// alarmas existentes y el reingreso sigue siendo válido.
-  Future<void> _programarNotificacionesDePaciente(String pacienteId) async {
+  Future<bool> _programarNotificacionesDePaciente(String pacienteId) async {
     _rearmandoAlarmas = true;
     try {
       final tratamientos = await _fs.getTratamientosDePaciente(
@@ -515,10 +575,16 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       _ultimaFechaRearme = DateTime(ahora.year, ahora.month, ahora.day);
       _ultimoPacienteRearme = pacienteId;
       _firmaTratamientosRearme = _firmaTratamientos(tratamientos);
+      return true;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('No se pudieron reprogramar las notificaciones: $e');
       }
+      await _registrarErrorSincronizacion(
+        e,
+        'No se pudieron reprogramar las notificaciones',
+      );
+      return false;
     } finally {
       _rearmandoAlarmas = false;
     }
@@ -536,11 +602,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }) async {
     await _pacienteSub?.cancel();
     _pacienteSub = null;
+    // Se cancelan antes de borrar el flag local: `cancelarTodas` exige que este
+    // teléfono siga siendo una sesión de paciente activa.
+    await _notif.cancelarTodas();
     await LocalStore.limpiarPacienteVinculado();
     if (borrarRecordada) {
       await LocalStore.limpiarUltimaVinculacion();
     }
-    await _notif.cancelarTodas();
     if (cerrarSesionAnonima) {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null && user.isAnonymous) {
@@ -555,6 +623,23 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _ultimoPacienteRearme = null;
     _firmaTratamientosRearme = null;
     notifyListeners();
+  }
+
+  /// Publica el estado del celular si este sigue siendo el paciente vinculado.
+  ///
+  /// Se dispara al abrir, reingresar, volver del fondo y cuando el rearme cambia
+  /// las alarmas pendientes. El throttle de 30 min vive en
+  /// [EstadoDispositivoService] y en `LocalStore`.
+  Future<void> _reportarEstadoDispositivo({bool forzar = false}) async {
+    final pacienteId = _pacienteVinculado?.id;
+    if (pacienteId == null || _reportandoEstadoDispositivo) return;
+
+    _reportandoEstadoDispositivo = true;
+    try {
+      await _estadoDispositivo.reportar(pacienteId, forzar: forzar);
+    } finally {
+      _reportandoEstadoDispositivo = false;
+    }
   }
 
   /// Desvinculación definitiva (doc borrado, UID distinto o permiso denegado):

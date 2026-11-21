@@ -14,6 +14,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_page_route.dart';
 import '../../theme/app_tokens.dart';
 import '../../utils/errores_amigables.dart';
+import '../../widgets/banner_sin_conexion.dart';
 import '../../widgets/confirmar_salida_app.dart';
 import '../../widgets/estados.dart';
 import '../../widgets/lista_pacientes.dart';
@@ -57,6 +58,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    // Cubre también una sesión de cuidador ya iniciada antes de esta versión.
+    unawaited(_notif.migrarAlarmasDeCuidador());
     unawaited(_push.registrarCuidador());
     _iniciarSuscripcion();
   }
@@ -239,69 +242,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         body: _uidVacio
             ? const Center(child: Text('No hay sesión activa'))
-            : StreamBuilder<QuerySnapshot>(
-                key: ValueKey('pacientes-$_reintentoPacientes'),
-                stream: FirebaseFirestore.instance
-                    .collection('pacientes')
-                    .where('cuidadorId', isEqualTo: uid)
-                    .snapshots(),
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    return EstadoError(
-                      mensaje: mensajeErrorAmigable(
-                        snap.error!,
-                        contexto: 'Error cargando pacientes del cuidador',
-                      ),
-                      onReintentar: () => setState(() => _reintentoPacientes++),
-                    );
-                  }
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const EstadoCargando(texto: 'Cargando pacientes...');
-                  }
-                  final pacientes = snap.data!.docs
-                      .map(
-                        (d) => Paciente.fromMap(
-                          d.id,
-                          d.data() as Map<String, dynamic>,
-                        ),
-                      )
-                      .toList();
-                  if (pacientes.isEmpty) {
-                    return EstadoVacio(
-                      icono: Icons.group_off,
-                      titulo: 'Aún no tienes pacientes',
-                      mensaje: 'Agrega un paciente y compártele el código de vinculación.',
-                      accion: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            AppPageRoute(
-                              builder: (_) => const NuevoPacienteScreen(),
+            : Column(
+                children: [
+                  const BannerSinConexion(
+                    mensaje: 'Sin conexión. Puede que estés viendo datos desactualizados.',
+                  ),
+                  Expanded(
+                    child: StreamBuilder<QuerySnapshot>(
+                      key: ValueKey('pacientes-$_reintentoPacientes'),
+                      stream: FirebaseFirestore.instance
+                          .collection('pacientes')
+                          .where('cuidadorId', isEqualTo: uid)
+                          .snapshots(includeMetadataChanges: true),
+                      builder: (context, snap) {
+                        reportarConexionDesde(
+                          context,
+                          snap.data?.metadata.isFromCache ?? true,
+                        );
+                        if (snap.hasError) {
+                          return EstadoError(
+                            mensaje: mensajeErrorAmigable(
+                              snap.error!,
+                              contexto: 'Error cargando pacientes del cuidador',
+                            ),
+                            onReintentar: () =>
+                                setState(() => _reintentoPacientes++),
+                          );
+                        }
+                        if (snap.connectionState == ConnectionState.waiting) {
+                          return const EstadoCargando(
+                            texto: 'Cargando pacientes...',
+                          );
+                        }
+                        final pacientes = snap.data!.docs
+                            .map(
+                              (d) => Paciente.fromMap(
+                                d.id,
+                                d.data() as Map<String, dynamic>,
+                              ),
+                            )
+                            .toList();
+                        if (pacientes.isEmpty) {
+                          return EstadoVacio(
+                            icono: Icons.group_off,
+                            titulo: 'Aún no tienes pacientes',
+                            mensaje: 'Agrega un paciente y compártele el código de vinculación.',
+                            accion: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  AppPageRoute(
+                                    builder: (_) => const NuevoPacienteScreen(),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.person_add),
+                              label: const Text('Agregar paciente'),
                             ),
                           );
-                        },
-                        icon: const Icon(Icons.person_add),
-                        label: const Text('Agregar paciente'),
-                      ),
-                    );
-                  }
-                  return ListaPacientes(
-                    pacientes: pacientes,
-                    onTap: (p) {
-                      Navigator.of(context).push(
-                        AppPageRoute(
-                          builder: (_) =>
-                              DetallePacienteScreen(pacienteId: p.id),
-                        ),
-                      );
-                    },
-                    footer: _ActividadReciente(
-                      pacienteIds: _pacienteIds,
-                      nombresPaciente: _nombresPaciente,
-                      nombresMedicamento: _nombresMedicamento,
-                      fs: _fs,
+                        }
+                        return ListaPacientes(
+                          pacientes: pacientes,
+                          onTap: (p) {
+                            Navigator.of(context).push(
+                              AppPageRoute(
+                                builder: (_) =>
+                                    DetallePacienteScreen(pacienteId: p.id),
+                              ),
+                            );
+                          },
+                          footer: _ActividadReciente(
+                            pacienteIds: _pacienteIds,
+                            nombresPaciente: _nombresPaciente,
+                            nombresMedicamento: _nombresMedicamento,
+                            fs: _fs,
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
+                  ),
+                ],
               ),
       ),
     );

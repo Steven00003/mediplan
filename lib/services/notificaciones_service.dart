@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -11,6 +12,7 @@ import '../utils/rearme_alarmas.dart';
 import '../utils/ventana_alarmas.dart';
 import '../utils/vigencia_tratamiento.dart';
 import 'diagnostico_service.dart';
+import 'local_store.dart';
 
 /// Datos que acompañan al toque de una alarma.
 ///
@@ -37,6 +39,46 @@ class NotificacionesService {
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
+
+  /// Regla central de propiedad de las alarmas de medicamentos.
+  ///
+  /// Solo el celular que está actuando como paciente puede programar o cancelar
+  /// alarmas locales. Un cuidador/doctor usa una sesión **no anónima** y, además,
+  /// su login borra el flag local de paciente; por eso esta comprobación lo deja
+  /// fuera aunque abra el editor de tratamientos.
+  ///
+  /// Es pura para poder probarla sin Firebase ni SharedPreferences.
+  static bool puedeProgramar({
+    required bool sesionAnonima,
+    required String? pacienteLocalId,
+    String? pacienteEsperado,
+  }) {
+    if (!sesionAnonima) return false;
+    final local = pacienteLocalId?.trim() ?? '';
+    if (local.isEmpty) return false;
+    final esperado = pacienteEsperado?.trim() ?? '';
+    if (esperado.isNotEmpty && local != esperado) return false;
+    return true;
+  }
+
+  /// Comprueba la regla anterior contra la sesión real del teléfono.
+  ///
+  /// No hace lecturas de Firestore para poder seguir programando sin conexión:
+  /// el id local solo se escribe después de validar el vínculo contra el
+  /// servidor y el login del cuidador lo borra.
+  Future<bool> sesionPacienteActiva({String? pacienteEsperado}) async {
+    try {
+      final usuario = FirebaseAuth.instance.currentUser;
+      final pacienteLocalId = await LocalStore.getPacienteVinculadoId();
+      return puedeProgramar(
+        sesionAnonima: usuario?.isAnonymous ?? false,
+        pacienteLocalId: pacienteLocalId,
+        pacienteEsperado: pacienteEsperado,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Impide que dos rearmes (tick, reingreso, edición) se solapen.
   final GuardRearme _guardRearme = GuardRearme();
@@ -314,6 +356,18 @@ class NotificacionesService {
     }
   }
 
+  /// Fabricante del teléfono (`Build.MANUFACTURER`), recortado a 40 caracteres.
+  Future<String?> fabricanteDispositivo() async {
+    try {
+      final fabricante = await _canalSistema.invokeMethod<String>('fabricante');
+      final limpio = fabricante?.trim() ?? '';
+      if (limpio.length <= 40) return limpio;
+      return limpio.substring(0, 40);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Indica si Android permite abrir la alarma a pantalla completa.
   ///
   /// En Android < 14 el permiso no existe y el canal devuelve `true`.
@@ -431,6 +485,13 @@ class NotificacionesService {
     } catch (_) {}
   }
 
+  /// Abre la pantalla de información de MediPlan en los Ajustes de Android.
+  Future<void> abrirDetallesApp() async {
+    try {
+      await _canalSistema.invokeMethod<void>('abrirDetallesApp');
+    } catch (_) {}
+  }
+
   /// Programa una alarma **puntual** (una sola ejecución) para un horario
   /// HH:mm.
   ///
@@ -447,6 +508,7 @@ class NotificacionesService {
     required String nombreMedicamento,
     required String payload,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     final partes = hora.split(':');
     final horaLocal = tz.TZDateTime(
       tz.local,
@@ -494,9 +556,10 @@ class NotificacionesService {
   /// Programa la alarma de prueba del diagnóstico: una sola ejecución en
   /// [en] (60 s por defecto) con el mismo canal, `alarmClock` y
   /// `fullScreenIntent` que la alarma real. No escribe en Firestore.
-  Future<void> programarAlarmaDePrueba({
+  Future<DateTime?> programarAlarmaDePrueba({
     Duration en = const Duration(seconds: 60),
   }) async {
+    if (!await sesionPacienteActiva()) return null;
     final cuando = tz.TZDateTime.now(tz.local).add(en);
     final payload = '$prefijoPayloadPrueba${cuando.millisecondsSinceEpoch}';
 
@@ -527,6 +590,7 @@ class NotificacionesService {
       proxima: cuando,
       semanal: false,
     );
+    return cuando;
   }
 
   /// Cancela la alarma de prueba y quita sus metadatos del diagnóstico.
@@ -700,6 +764,7 @@ class NotificacionesService {
     int? duracionDias,
     DateTime? ahora,
   }) async {
+    if (!await sesionPacienteActiva()) return 0;
     final referencia = ahora ?? DateTime.now();
 
     // Limpia la alarma semanal antigua de este horario (ids positivos) y las
@@ -840,6 +905,7 @@ class NotificacionesService {
     int? duracionDias,
     DateTime? ahora,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     await programarAlarmasDeHorario(
       tratamientoId: tratamientoId,
       horario: horario,
@@ -865,6 +931,7 @@ class NotificacionesService {
     required HorarioDia horario,
     required String nombreMedicamento,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     await programarAvisoPrevioDeHorario(
       tratamientoId: tratamientoId,
       horario: horario,
@@ -885,6 +952,7 @@ class NotificacionesService {
     required List<Tratamiento> tratamientos,
     DateTime? ahora,
   }) async {
+    if (!await sesionPacienteActiva()) return false;
     final referencia = ahora ?? DateTime.now();
     final esperadas = <int>{};
     for (final tratamiento in tratamientos) {
@@ -927,6 +995,7 @@ class NotificacionesService {
     required List<Tratamiento> tratamientos,
     DateTime? ahora,
   }) async {
+    if (!await sesionPacienteActiva()) return 0;
     if (!_guardRearme.entrar()) return 0;
     final referencia = ahora ?? DateTime.now();
     try {
@@ -1005,18 +1074,13 @@ class NotificacionesService {
         for (final horario in tratamiento.horarios) {
           for (final dia in horario.dias) {
             final idViejo = idDeAlarma(tratamiento.id, horario.hora, dia);
-            if (!pendientesIds.contains(idViejo) ||
-                !actualesIds.add(idViejo)) {
+            if (!pendientesIds.contains(idViejo) || !actualesIds.add(idViejo)) {
               continue;
             }
             actuales.add(
               AlarmaActual(
                 id: idViejo,
-                hora: _horaSemanalParaProteccion(
-                  horario.hora,
-                  dia,
-                  referencia,
-                ),
+                hora: _horaSemanalParaProteccion(horario.hora, dia, referencia),
               ),
             );
           }
@@ -1079,11 +1143,7 @@ class NotificacionesService {
     return id.isEmpty ? null : id;
   }
 
-  DateTime? _proximaOcurrenciaSemanal(
-    String hora,
-    int dia,
-    DateTime ahora,
-  ) {
+  DateTime? _proximaOcurrenciaSemanal(String hora, int dia, DateTime ahora) {
     final partes = hora.split(':');
     if (partes.length != 2) return null;
     final h = int.tryParse(partes[0]);
@@ -1103,11 +1163,7 @@ class NotificacionesService {
   /// Si la repetición anterior fue hace menos de 2 min, devuelve esa hora para
   /// no cancelar/dismissar una notificación que acaba de sonar. Si no, devuelve
   /// la próxima (que puede estar a menos de 90 s).
-  DateTime? _horaSemanalParaProteccion(
-    String hora,
-    int dia,
-    DateTime ahora,
-  ) {
+  DateTime? _horaSemanalParaProteccion(String hora, int dia, DateTime ahora) {
     final proxima = _proximaOcurrenciaSemanal(hora, dia, ahora);
     if (proxima == null) return null;
     final anterior = proxima.subtract(const Duration(days: 7));
@@ -1144,6 +1200,7 @@ class NotificacionesService {
     required HorarioDia horario,
     required String nombreMedicamento,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     for (final dia in horario.dias) {
       final (horaAviso, diaAviso) = desplazarHoraYDia(horario.hora, dia, -5);
       final id = idDeAvisoPrevio(tratamientoId, horario.hora, dia);
@@ -1185,6 +1242,7 @@ class NotificacionesService {
     required HorarioDia horario,
     required String nombreMedicamento,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     for (final dia in horario.dias) {
       await _programarRecordatorioTardioDia(
         tratamientoId: tratamientoId,
@@ -1248,6 +1306,7 @@ class NotificacionesService {
     required DateTime horaProgramada,
     required String nombreMedicamento,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     try {
       final cuando = tz.TZDateTime.from(
         horaProgramada.add(const Duration(minutes: 15)),
@@ -1305,6 +1364,7 @@ class NotificacionesService {
     required List<HorarioDia> horarios,
     required String nombreMedicamento,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     try {
       final idPospuesto = idDeRecordatorioTardioPospuesto(
         tratamientoId,
@@ -1352,6 +1412,7 @@ class NotificacionesService {
     required String tratamientoId,
     required DateTime horaProgramada,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     try {
       await _plugin.show(
         idDeFelicitacion(tratamientoId, horaProgramada),
@@ -1417,6 +1478,7 @@ class NotificacionesService {
     required List<HorarioDia> horarios,
     int? idNotificacion,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     final ids = <int>{};
     if (idNotificacion != null && idNotificacion != 0) {
       // Si la alarma se abrió desde la notificación, ese id identifica la
@@ -1454,6 +1516,7 @@ class NotificacionesService {
     required List<HorarioDia> horarios,
     DateTime? ahora,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     await cancelarAlarmasDeTratamiento(
       tratamientoId: tratamientoId,
       horarios: horarios,
@@ -1514,6 +1577,7 @@ class NotificacionesService {
     DateTime? ahora,
     bool incluirPosponer = true,
   }) async {
+    if (!await sesionPacienteActiva()) return;
     final ids = <int>{};
 
     // Las ocurrencias puntuales se cancelan sin mirar la vigencia: los
@@ -1548,10 +1612,41 @@ class NotificacionesService {
     }
   }
 
-  /// Cancela todas las alarmas locales (p. ej. al desvincular o editar).
+  /// Cancela todas las alarmas locales de medicamentos (p. ej. al desvincular).
   Future<void> cancelarTodas() async {
+    if (!await sesionPacienteActiva()) return;
     await _plugin.cancelAll();
     await DiagnosticoService().limpiarProgramaciones();
+  }
+
+  /// Limpieza única de alarmas que versiones antiguas dejaron en el teléfono de
+  /// un cuidador.
+  ///
+  /// Se llama desde el login del cuidador y desde su dashboard. Solo actúa en
+  /// una sesión NO anónima y una vez por instalación. Deja marcado que, si este
+  /// mismo teléfono vuelve a entrar como paciente, debe reprogramar sus alarmas.
+  Future<bool> migrarAlarmasDeCuidador() async {
+    try {
+      final version = await LocalStore.getVersionMigracionAlarmas();
+      if (version >= LocalStore.versionMigracionAlarmas) return false;
+
+      final usuario = FirebaseAuth.instance.currentUser;
+      if (usuario == null || usuario.isAnonymous) return false;
+
+      await _plugin.cancelAll();
+      await DiagnosticoService().limpiarProgramaciones();
+      _payloadPendiente.value = null;
+      await LocalStore.guardarVersionMigracionAlarmas(
+        LocalStore.versionMigracionAlarmas,
+      );
+      await LocalStore.marcarPendienteReprogramarAlarmas();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('No se pudieron limpiar las alarmas antiguas: $e');
+      }
+      return false;
+    }
   }
 
   /// Muestra una notificación local inmediata (para el cuidador).

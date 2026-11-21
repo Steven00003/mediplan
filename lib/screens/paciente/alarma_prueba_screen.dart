@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 
-/// Pantalla mínima de la alarma de prueba del diagnóstico.
+/// Pantalla mínima de la alarma de prueba.
 ///
 /// No lee ni escribe Firestore. Solo compara la hora para la que se programó
 /// la notificación con la hora real en que la app se abrió.
@@ -35,44 +36,51 @@ class _AlarmaPruebaScreenState extends State<AlarmaPruebaScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Prueba de alarma'),
+        title: const Text(
+          'Prueba de alarma',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         automaticallyImplyLeading: false,
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.md),
           children: [
-            const Icon(Icons.alarm_on, size: 72, color: AppColors.accent),
-            const SizedBox(height: 16),
-            const Text(
+            const Icon(
+              Icons.alarm_on,
+              size: AppSizes.iconXLarge + AppSizes.iconLarge,
+              color: AppColors.primaryStrong,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
               'La alarma abrió la app',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: AppColors.onGreen,
-              ),
+              style: AppType.title.copyWith(color: AppColors.onGreen),
             ),
-            const SizedBox(height: 8),
-            const Text(
+            const SizedBox(height: AppSpacing.xs),
+            Text(
               'Esta pantalla es solo una prueba: no registra ninguna toma.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.textSecondary),
+              style: AppType.body.copyWith(color: AppColors.textSecondary),
             ),
-            const SizedBox(height: 28),
+            const SizedBox(height: AppSpacing.md),
             _dato('Hora programada', _formatear(widget.horaProgramada)),
             _dato('Hora real de apertura', _formatear(_horaApertura)),
             _dato('Diferencia', '${segundos}s'),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.sm),
             Text(
               textoDiferencia,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, color: AppColors.onGreen),
+              style: AppType.body.copyWith(color: AppColors.onGreen),
             ),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cerrar'),
+            const SizedBox(height: AppSpacing.md),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cerrar'),
+              ),
             ),
           ],
         ),
@@ -82,22 +90,30 @@ class _AlarmaPruebaScreenState extends State<AlarmaPruebaScreen> {
 
   Widget _dato(String etiqueta, String valor) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: AppSpacing.xs),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.sm,
+        ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Text(
                 etiqueta,
-                style: const TextStyle(color: AppColors.textSecondary),
+                style: AppType.body.copyWith(color: AppColors.textSecondary),
               ),
             ),
-            Text(
-              valor,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: AppColors.onGreen,
+            const SizedBox(width: AppSpacing.xs),
+            Flexible(
+              child: Text(
+                valor,
+                textAlign: TextAlign.right,
+                style: AppType.body.copyWith(
+                  color: AppColors.onGreen,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ],

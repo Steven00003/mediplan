@@ -15,12 +15,18 @@ import '../../services/omitidas_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_page_route.dart';
 import '../../theme/app_tokens.dart';
+import '../../utils/abrir_marcador.dart';
+import '../../utils/comprobar_celular.dart';
 import '../../utils/errores_amigables.dart';
 import '../../utils/registros_toma.dart';
+import '../../utils/telefono_emergencia.dart';
 import '../../utils/vigencia_tratamiento.dart';
+import '../../widgets/banner_sin_conexion.dart';
 import '../../widgets/dialogo_accion_delicada.dart';
 import '../../widgets/estados.dart';
+import '../../widgets/menu_ayuda.dart';
 import 'alarma_screen.dart';
+import 'comprobar_celular_screen.dart';
 import 'diagnostico_alarma_screen.dart';
 
 /// Pantalla principal del Paciente: "Medicamentos próximos".
@@ -59,9 +65,15 @@ class _MedicamentosProximosScreenState
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!_alarmaAbierta) _revisarTomas();
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       _revisarTomas();
-      _quizasPedirPermisoPantallaCompleta();
+      // Primero el aviso general: si hay permisos críticos pendientes, lleva a
+      // la pantalla de ayuda. Solo si no se mostró se conserva el diálogo
+      // específico de pantalla completa.
+      final mostroAviso = await _quizasAvisarPermisosCriticos();
+      if (!mostroAviso) {
+        await _quizasPedirPermisoPantallaCompleta();
+      }
     });
   }
 
@@ -139,6 +151,84 @@ class _MedicamentosProximosScreenState
         !context.read<AppState>().alarmaAbierta) {
       _abrirAlarma(candidato, horarioCandidato!, pacienteId);
     }
+  }
+
+  /// Aviso único del primer arranque cuando falta algún permiso crítico.
+  ///
+  /// Es amable y lleva a "Comprobar mi celular". No bloquea: si el paciente
+  /// dice "Ahora no", puede entrar después desde Horario o desde Ayuda.
+  Future<bool> _quizasAvisarPermisosCriticos() async {
+    // Igual que el aviso de pantalla completa: deja que _revisarTomas abra
+    // primero una alarma si toca.
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    if (!mounted || _alarmaAbierta || context.read<AppState>().alarmaAbierta) {
+      return false;
+    }
+    if (await LocalStore.getAvisoPermisosCelularMostrado()) return false;
+
+    final notif = NotificacionesService();
+    final sdk = await notif.androidSdkInt();
+    if (sdk == null) return false;
+
+    final notificaciones = await notif.notificacionesHabilitadas();
+    final exactas = sdk >= 31
+        ? await notif.puedeProgramarAlarmasExactas()
+        : null;
+    final pantalla = sdk >= 34 ? await notif.puedeUsarPantallaCompleta() : null;
+    final energia = sdk >= 23 ? await notif.estadoEnergia() : null;
+    final bateria = energia?['ignoringBatteryOptimizations'] as bool?;
+
+    if (!faltanPermisosCriticos(
+      sdkInt: sdk,
+      notificaciones: notificaciones,
+      alarmasExactas: exactas,
+      pantallaCompleta: pantalla,
+      bateriaSinRestricciones: bateria,
+    )) {
+      return false;
+    }
+
+    if (!mounted || _alarmaAbierta || context.read<AppState>().alarmaAbierta) {
+      return false;
+    }
+    // Se marca antes de mostrar: si la app se cierra mientras el paciente lee,
+    // el aviso no vuelve a aparecer en cada apertura.
+    await LocalStore.marcarAvisoPermisosCelularMostrado();
+    // El aviso general ya cubre la pantalla completa: no repetimos el diálogo
+    // específico que existía antes.
+    if (sdk >= 34 && pantalla == false) {
+      await LocalStore.marcarPantallaCompletaPreguntada();
+    }
+    if (!mounted || _alarmaAbierta || context.read<AppState>().alarmaAbierta) {
+      return true;
+    }
+
+    final revisar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Revisa los permisos de tu celular'),
+        content: const Text(
+          'Para que las alarmas de tus medicamentos suenen a tiempo, revisa '
+          'las notificaciones, la batería y el inicio automático.\n\n'
+          'Te guiamos paso a paso según tu marca.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Ahora no'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Revisar'),
+          ),
+        ],
+      ),
+    );
+    if (revisar == true && mounted) {
+      await Navigator.of(context)
+          .push(AppPageRoute(builder: (_) => const ComprobarCelularScreen()));
+    }
+    return true;
   }
 
   /// Pide una sola vez el permiso de pantalla completa (Android 14+).
@@ -281,10 +371,12 @@ class _MedicamentosProximosScreenState
 
   @override
   Widget build(BuildContext context) {
-    final pacienteId = _pacienteId;
-    if (pacienteId == null) {
+    final appState = context.watch<AppState>();
+    final paciente = appState.pacienteVinculado;
+    if (paciente == null) {
       return const Scaffold(body: Center(child: Text('Sin paciente')));
     }
+    final pacienteId = paciente.id;
 
     return GestureDetector(
       onLongPress: _mostrarDialogoSalida,
@@ -336,7 +428,7 @@ class _MedicamentosProximosScreenState
           body: IndexedStack(
             index: _pestana,
             children: [
-              _listaHorario(pacienteId),
+              _listaHorario(pacienteId, paciente.contactoEmergencia),
               _PestanaHistorial(pacienteId: pacienteId),
             ],
           ),
@@ -363,82 +455,121 @@ class _MedicamentosProximosScreenState
   /// Lista de medicamentos que hoy tienen toma.
   ///
   /// Es la vista que ya existía, sin cambios en su lógica.
-  Widget _listaHorario(String pacienteId) {
-    return StreamBuilder<List<Tratamiento>>(
-      key: ValueKey('horario-$_reintentoHorario'),
-      stream: _fs.streamTratamientosDePaciente(pacienteId),
-      builder: (context, snap) {
-        if (snap.hasError) {
-          return EstadoError(
-            mensaje: mensajeErrorAmigable(
-              snap.error!,
-              contexto: 'Error cargando horario del paciente',
-            ),
-            onReintentar: () => setState(() {
-              _reintentoHorario++;
-              _registrosHoy = _fs.streamRegistrosDePacienteHoy(pacienteId);
-            }),
-          );
-        }
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const EstadoCargando(texto: 'Cargando horario...');
-        }
-        final ahora = DateTime.now();
-        final todos = snap.data ?? const <Tratamiento>[];
-        // Solo se listan los medicamentos que hoy tienen algún horario
-        // aplicable. Si hoy no toca, no hay nada que tomar.
-        final tratamientos = todos
-            .where((t) => OmitidasService.ranurasDelDia([t], ahora).isNotEmpty)
-            .toList();
-        if (tratamientos.isEmpty) {
-          return EstadoVacio(
-            icono: Icons.medication,
-            titulo: 'No tienes medicamentos programados por ahora',
-            mensaje: todos.isEmpty
-                ? 'Tu cuidador los va a agregar.'
-                : 'Hoy no hay tomas programadas.',
-          );
-        }
-        return StreamBuilder<List<RegistroToma>>(
-          stream: _registrosHoy,
-          builder: (context, regSnap) {
-            if (regSnap.hasError) {
-              return EstadoError(
-                mensaje: mensajeErrorAmigable(
-                  regSnap.error!,
-                  contexto: 'Error cargando tomas de hoy',
-                ),
-                onReintentar: () => setState(() {
-                  _reintentoHorario++;
-                  _registrosHoy = _fs.streamRegistrosDePacienteHoy(pacienteId);
-                }),
-              );
-            }
-            if (regSnap.connectionState == ConnectionState.waiting &&
-                !regSnap.hasData) {
-              return const EstadoCargando(texto: 'Cargando tomas...');
-            }
-            // Si la lectura de hoy falla, se sigue mostrando el horario. La
-            // pantalla de alarma vuelve a comprobar la ranura antes de ofrecer
-            // "YA", así que no se puede confirmar dos veces por esto.
-            final registros = regSnap.data ?? const <RegistroToma>[];
-            return ListView.builder(
-              padding: const EdgeInsets.all(AppSpacing.sm),
-              itemCount: tratamientos.length,
-              itemBuilder: (context, i) {
-                final t = tratamientos[i];
-                return _CardMedicamento(
-                  key: ValueKey(t.id),
-                  tratamiento: t,
-                  registros: registros,
-                  onAbrir: (hora) => _abrirAlarma(t, hora, pacienteId),
-                );
+  Widget _listaHorario(String pacienteId, String? contactoEmergencia) {
+    final telefono = normalizarTelefonoEmergencia(contactoEmergencia);
+    return Column(
+      children: [
+        const BannerSinConexion(
+          mensaje: 'Sin conexión. Tus alarmas siguen funcionando.',
+        ),
+        _AccesoComprobarCelular(
+          onAbrir: _abrirComprobarCelular,
+          onAyuda: () => mostrarMenuAyuda(context, esPaciente: true),
+        ),
+        Expanded(
+          child: StreamBuilder<List<Tratamiento>>(
+            key: ValueKey('horario-$_reintentoHorario'),
+            stream: _fs.streamTratamientosDePaciente(
+              pacienteId,
+              includeMetadataChanges: true,
+              onMetadata: (desdeCache) {
+                if (!mounted) return;
+                reportarConexionDesde(context, desdeCache);
               },
-            );
-          },
-        );
-      },
+            ),
+            builder: (context, snap) {
+              if (snap.hasError) {
+                return EstadoError(
+                  mensaje: mensajeErrorAmigable(
+                    snap.error!,
+                    contexto: 'Error cargando horario del paciente',
+                  ),
+                  onReintentar: () => setState(() {
+                    _reintentoHorario++;
+                    _registrosHoy = _fs.streamRegistrosDePacienteHoy(
+                      pacienteId,
+                    );
+                  }),
+                );
+              }
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const EstadoCargando(texto: 'Cargando horario...');
+              }
+              final ahora = DateTime.now();
+              final todos = snap.data ?? const <Tratamiento>[];
+              // Solo se listan los medicamentos que hoy tienen algún horario
+              // aplicable. Si hoy no toca, no hay nada que tomar.
+              final tratamientos = todos
+                  .where(
+                    (t) => OmitidasService.ranurasDelDia([t], ahora).isNotEmpty,
+                  )
+                  .toList();
+              if (tratamientos.isEmpty) {
+                return EstadoVacio(
+                  icono: Icons.medication,
+                  titulo: 'No tienes medicamentos programados por ahora',
+                  mensaje: todos.isEmpty
+                      ? 'Tu cuidador los va a agregar.'
+                      : 'Hoy no hay tomas programadas.',
+                );
+              }
+              return StreamBuilder<List<RegistroToma>>(
+                stream: _registrosHoy,
+                builder: (context, regSnap) {
+                  if (regSnap.hasError) {
+                    return EstadoError(
+                      mensaje: mensajeErrorAmigable(
+                        regSnap.error!,
+                        contexto: 'Error cargando tomas de hoy',
+                      ),
+                      onReintentar: () => setState(() {
+                        _reintentoHorario++;
+                        _registrosHoy = _fs.streamRegistrosDePacienteHoy(
+                          pacienteId,
+                        );
+                      }),
+                    );
+                  }
+                  if (regSnap.connectionState == ConnectionState.waiting &&
+                      !regSnap.hasData) {
+                    return const EstadoCargando(texto: 'Cargando tomas...');
+                  }
+                  // Si la lectura de hoy falla, se sigue mostrando el horario. La
+                  // pantalla de alarma vuelve a comprobar la ranura antes de ofrecer
+                  // "YA", así que no se puede confirmar dos veces por esto.
+                  final registros = regSnap.data ?? const <RegistroToma>[];
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    itemCount: tratamientos.length + (telefono != null ? 1 : 0),
+                    itemBuilder: (context, i) {
+                      if (i == tratamientos.length) {
+                        return _TarjetaAyuda(
+                          telefono: telefono!,
+                          contactoVisible:
+                              contactoEmergencia?.trim() ?? telefono,
+                        );
+                      }
+                      final t = tratamientos[i];
+                      return _CardMedicamento(
+                        key: ValueKey(t.id),
+                        tratamiento: t,
+                        registros: registros,
+                        onAbrir: (hora) => _abrirAlarma(t, hora, pacienteId),
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
+  }
+
+  void _abrirComprobarCelular() {
+    Navigator.of(context)
+        .push(AppPageRoute(builder: (_) => const ComprobarCelularScreen()));
   }
 
   /// Salida del modo paciente: botón visible del AppBar y toque largo, ambos
@@ -458,6 +589,59 @@ class _MedicamentosProximosScreenState
     if (salir && mounted) {
       await appState.salirDelModoPaciente();
     }
+  }
+}
+
+/// Acceso discreto a "Comprobar mi celular" y al menú de ayuda del paciente.
+class _AccesoComprobarCelular extends StatelessWidget {
+  final VoidCallback onAbrir;
+  final VoidCallback onAyuda;
+
+  const _AccesoComprobarCelular({required this.onAbrir, required this.onAyuda});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.sm,
+        AppSpacing.xs,
+        AppSpacing.xs,
+        0,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: onAbrir,
+                icon: const Icon(Icons.phone_android, size: AppSizes.iconSmall),
+                label: const Text('Comprobar mi celular'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.primaryStrong,
+                  minimumSize: const Size(0, AppSizes.minTouch),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xs,
+                  ),
+                  textStyle: AppType.label,
+                ),
+              ),
+            ),
+          ),
+          Semantics(
+            button: true,
+            label: 'Ayuda y acerca de',
+            excludeSemantics: true,
+            child: IconButton(
+              tooltip: 'Ayuda y acerca de',
+              onPressed: onAyuda,
+              icon: const Icon(Icons.help_outline),
+              color: AppColors.primaryStrong,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -571,6 +755,72 @@ class _CardMedicamento extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tarjeta discreta al final de Horario para llamar al contacto de emergencia.
+///
+/// Solo se construye cuando el contacto guardado es un teléfono válido. No
+/// aparece en la pantalla de alarma: vive dentro de la lista de Horario.
+class _TarjetaAyuda extends StatelessWidget {
+  final String telefono;
+  final String contactoVisible;
+
+  const _TarjetaAyuda({required this.telefono, required this.contactoVisible});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(top: AppSpacing.xs, bottom: AppSpacing.sm),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '¿Necesitas ayuda?',
+              style: AppType.body.copyWith(
+                color: AppColors.onGreen,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Contacto de emergencia: $contactoVisible',
+              style: AppType.label.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => abrirMarcadorTelefono(context, telefono),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primaryStrong,
+                  side: const BorderSide(color: AppColors.accent),
+                  minimumSize: const Size.fromHeight(AppSizes.minTouch),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.call, size: AppSizes.iconSmall),
+                    SizedBox(width: AppSpacing.xs),
+                    Flexible(
+                      child: Text(
+                        'Llamar al contacto de emergencia',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

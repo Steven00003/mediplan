@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../constants.dart';
+import '../models/estado_dispositivo.dart';
 import '../models/paciente.dart';
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
+import '../utils/estado_codigo_vinculacion.dart';
 import '../utils/historial_tomas.dart';
 import '../utils/id_ranura.dart';
 import '../utils/registros_toma.dart';
@@ -19,6 +22,17 @@ class DispositivoVinculadoAOtroException implements Exception {
   const DispositivoVinculadoAOtroException();
 }
 
+/// El código existe, pero su fecha de expiración ya pasó y este dispositivo no
+/// era el vinculado (si ya lo fuera, el reingreso no mira el vencimiento).
+class CodigoVencidoException implements Exception {
+  const CodigoVencidoException();
+}
+
+/// El código aleatorio nuevo ya existe; el llamador debe generar otro.
+class CodigoVinculacionColisionException implements Exception {
+  const CodigoVinculacionColisionException();
+}
+
 /// Resultado de intentar escribir una toma en una ranura.
 ///
 /// [creado] es `true` solo si esta llamada escribió el registro final. Si la
@@ -27,9 +41,7 @@ class ResultadoRegistroToma {
   final bool creado;
   final RegistroToma? existente;
 
-  const ResultadoRegistroToma.creado()
-    : creado = true,
-      existente = null;
+  const ResultadoRegistroToma.creado() : creado = true, existente = null;
 
   const ResultadoRegistroToma.yaRegistrada(this.existente) : creado = false;
 }
@@ -52,6 +64,9 @@ class FirestoreService {
       _db.collection('vinculos');
 
   String get _cuidadorId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  Timestamp _expiracionNueva() =>
+      Timestamp.fromDate(DateTime.now().add(duracionCodigoVinculacion));
 
   /// Stream en tiempo real de los pacientes del cuidador logueado.
   Stream<List<Paciente>> streamPacientesDelCuidador() {
@@ -127,6 +142,7 @@ class FirestoreService {
     try {
       await _vinculosCollection().doc(codigoVinculacion).set({
         'pacienteId': doc.id,
+        'expiraEn': _expiracionNueva(),
       });
     } catch (e) {
       // Intento de limpiar el paciente creado si falla el registro de vínculo.
@@ -136,6 +152,45 @@ class FirestoreService {
       rethrow;
     }
     return doc.id;
+  }
+
+  /// Actualiza **solo** la ficha visible del paciente.
+  ///
+  /// La lista de campos es deliberadamente cerrada: nunca escribe
+  /// `cuidadorId`, `codigoVinculacion` ni `dispositivoVinculadoId`, que se
+  /// gestionan en flujos separados (creación, regeneración y vinculación).
+  /// Un `null` borra el valor opcional correspondiente (por ejemplo, la foto).
+  Future<void> actualizarFichaPaciente({
+    required String pacienteId,
+    required String nombre,
+    required int? edad,
+    required String? condicion,
+    required String? contactoEmergencia,
+    required String? fotoBase64,
+  }) async {
+    await _pacientesCollection().doc(pacienteId).update({
+      'nombre': nombre,
+      'edad': edad,
+      'condicion': condicion,
+      'contactoEmergencia': contactoEmergencia,
+      'fotoBase64': fotoBase64,
+    });
+  }
+
+  /// Escribe el reporte del celular del paciente.
+  ///
+  /// Las reglas solo permiten al dispositivo vinculado cambiar exactamente esta
+  /// clave, y exigen `ultimaSincronizacion == request.time`; por eso se usa
+  /// siempre `FieldValue.serverTimestamp()`.
+  Future<void> actualizarEstadoDispositivo(
+    String pacienteId,
+    EstadoDispositivo estado,
+  ) async {
+    await _pacientesCollection().doc(pacienteId).update({
+      'estadoDispositivo': estado.toMap(
+        ultimaSincronizacion: FieldValue.serverTimestamp(),
+      ),
+    });
   }
 
   /// Vincula permanentemente el dispositivo del paciente a su perfil.
@@ -180,9 +235,7 @@ class FirestoreService {
         .get();
     for (final doc in snap.docs) {
       if (doc.data()['cuidadorFcmToken'] == null) continue;
-      await doc.reference.update({
-        'cuidadorFcmToken': FieldValue.delete(),
-      });
+      await doc.reference.update({'cuidadorFcmToken': FieldValue.delete()});
     }
   }
 
@@ -194,15 +247,25 @@ class FirestoreService {
       _db.collection('tratamientos');
 
   /// Stream de tratamientos de un paciente (usado por el paciente).
-  Stream<List<Tratamiento>> streamTratamientosDePaciente(String pacienteId) {
+  ///
+  /// [includeMetadataChanges] se activa solo desde la pantalla que muestra el
+  /// aviso de conexión; el resto de consumidores lo deja en `false` para no
+  /// recibir emisiones extra por metadatos. [onMetadata] recibe
+  /// `snapshot.metadata.isFromCache` sin cambiar los datos emitidos.
+  Stream<List<Tratamiento>> streamTratamientosDePaciente(
+    String pacienteId, {
+    bool includeMetadataChanges = false,
+    void Function(bool desdeCache)? onMetadata,
+  }) {
     return _tratamientosCollection()
         .where('pacienteId', isEqualTo: pacienteId)
-        .snapshots()
-        .map(
-          (snap) => snap.docs
+        .snapshots(includeMetadataChanges: includeMetadataChanges)
+        .map((snap) {
+          onMetadata?.call(snap.metadata.isFromCache);
+          return snap.docs
               .map((d) => Tratamiento.fromMap(d.id, d.data()))
-              .toList(),
-        );
+              .toList();
+        });
   }
 
   /// Lectura puntual de los tratamientos, usada al reprogramar alarmas tras
@@ -214,9 +277,7 @@ class FirestoreService {
     final snap = await _tratamientosCollection()
         .where('pacienteId', isEqualTo: pacienteId)
         .get(options);
-    return snap.docs
-        .map((d) => Tratamiento.fromMap(d.id, d.data()))
-        .toList();
+    return snap.docs.map((d) => Tratamiento.fromMap(d.id, d.data())).toList();
   }
 
   Future<String> crearTratamiento(Tratamiento tratamiento) async {
@@ -764,11 +825,14 @@ class FirestoreService {
   ///
   /// Resuelve el código en `/vinculos` y:
   ///  1. Si el paciente ya está vinculado a este mismo UID, lo devuelve sin
-  ///     escribir. Esto permite reingresar escribiendo de nuevo el código.
-  ///  2. Si no, intenta el `update`. Las reglas solo lo permiten cuando el
-  ///     campo está libre y el UID asignado es el del escritor. Si Firestore
-  ///     responde `permission-denied`, el código pertenece a otro dispositivo y
-  ///     se lanza [DispositivoVinculadoAOtroException].
+  ///     escribir. Esto permite reingresar escribiendo de nuevo el código,
+  ///     aunque el código ya haya vencido.
+  ///  2. Si no es reingreso y el código venció, lanza [CodigoVencidoException]
+  ///     sin intentar el `update`.
+  ///  3. Si sigue vigente, intenta el `update`. Las reglas solo lo permiten
+  ///     cuando el campo está libre y el UID asignado es el del escritor. Si
+  ///     Firestore responde `permission-denied`, el código pertenece a otro
+  ///     dispositivo y se lanza [DispositivoVinculadoAOtroException].
   ///
   /// No se hace un `get()` directo antes del update: el dispositivo anónimo
   /// todavía no es el dueño del documento y la regla de lectura lo rechazaría.
@@ -791,6 +855,12 @@ class FirestoreService {
       source: Source.server,
     );
     if (yaVinculado != null) return yaVinculado;
+
+    final expiraEn = _fechaDeExpiracion(vinculo.data()?['expiraEn']);
+    if (estadoDelCodigo(expiraEn, DateTime.now()) ==
+        EstadoCodigoVinculacion.vencido) {
+      throw const CodigoVencidoException();
+    }
 
     try {
       await _pacientesCollection().doc(pacienteId).update({
@@ -825,6 +895,66 @@ class FirestoreService {
     );
   }
 
+  /// Genera un reemplazo atómico del código de un paciente **no vinculado**.
+  ///
+  /// El llamador ya generó [nuevoCodigo]; si ese documento de `vinculos` ya
+  /// existe, lanza [CodigoVinculacionColisionException] para que reintente con
+  /// otro. En la misma transacción se crea el vínculo nuevo, se actualiza
+  /// `pacientes/{id}.codigoVinculacion` y se borra el vínculo viejo.
+  Future<void> reemplazarCodigoVinculacion(
+    String pacienteId,
+    String nuevoCodigo,
+  ) async {
+    final uid = _cuidadorId;
+    if (uid.isEmpty) {
+      throw StateError('No hay una sesión de cuidador activa.');
+    }
+    final nuevo = nuevoCodigo.trim().toUpperCase();
+
+    await _db.runTransaction((tx) async {
+      final pacienteRef = _pacientesCollection().doc(pacienteId);
+      final pacienteSnap = await tx.get(pacienteRef);
+      if (!pacienteSnap.exists) {
+        throw StateError('El paciente ya no existe.');
+      }
+      final data = pacienteSnap.data()!;
+      if (data['cuidadorId'] != uid) {
+        throw StateError('No tienes permiso para cambiar este código.');
+      }
+      final dispositivo = data['dispositivoVinculadoId'] as String? ?? '';
+      if (dispositivo.isNotEmpty) {
+        throw StateError(
+          'El paciente ya está vinculado. Primero desvincula el dispositivo.',
+        );
+      }
+
+      final viejoCodigo = (data['codigoVinculacion'] as String? ?? '')
+          .trim()
+          .toUpperCase();
+      final nuevoRef = _vinculosCollection().doc(nuevo);
+      final nuevoSnap = await tx.get(nuevoRef);
+      if (nuevoSnap.exists) {
+        throw const CodigoVinculacionColisionException();
+      }
+
+      DocumentSnapshot<Map<String, dynamic>>? viejoSnap;
+      if (viejoCodigo.isNotEmpty) {
+        viejoSnap = await tx.get(_vinculosCollection().doc(viejoCodigo));
+      }
+
+      tx.set(nuevoRef, {
+        'pacienteId': pacienteId,
+        'expiraEn': _expiracionNueva(),
+      });
+      tx.update(pacienteRef, {'codigoVinculacion': nuevo});
+      if (viejoSnap != null &&
+          viejoSnap.exists &&
+          viejoSnap.data()?['pacienteId'] == pacienteId) {
+        tx.delete(_vinculosCollection().doc(viejoCodigo));
+      }
+    });
+  }
+
   /// Desvincula el dispositivo del paciente dejando `dispositivoVinculadoId`
   /// vacío (que las reglas de `firestore.rules` tratan como "libre").
   /// Solo el cuidador dueño puede: las reglas exigen que quien escribe sea el
@@ -843,7 +973,14 @@ class FirestoreService {
     if (codigo.isNotEmpty) {
       await _vinculosCollection().doc(codigo).set({
         'pacienteId': pacienteId,
+        'expiraEn': _expiracionNueva(),
       });
     }
   }
+}
+
+DateTime? _fechaDeExpiracion(Object? valor) {
+  if (valor is Timestamp) return valor.toDate();
+  if (valor is DateTime) return valor;
+  return null;
 }

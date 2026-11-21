@@ -37,10 +37,14 @@ void main() {
     });
 
     test('horas distintas del mismo tratamiento y día no colisionan', () {
-      expect(NotificacionesService.idDeAlarma('t1', '08:00', 1),
-          isNot(NotificacionesService.idDeAlarma('t1', '20:00', 1)));
-      expect(NotificacionesService.idDeAlarma('t1', '08:00', 1),
-          isNot(NotificacionesService.idDeAlarma('t1', '08:30', 1)));
+      expect(
+        NotificacionesService.idDeAlarma('t1', '08:00', 1),
+        isNot(NotificacionesService.idDeAlarma('t1', '20:00', 1)),
+      );
+      expect(
+        NotificacionesService.idDeAlarma('t1', '08:00', 1),
+        isNot(NotificacionesService.idDeAlarma('t1', '08:30', 1)),
+      );
     });
 
     test('días distintos de la misma hora y tratamiento no colisionan', () {
@@ -53,8 +57,10 @@ void main() {
     });
 
     test('tratamientos distintos con la misma hora y día no colisionan', () {
-      expect(NotificacionesService.idDeAlarma('t1', '08:00', 1),
-          isNot(NotificacionesService.idDeAlarma('t2', '08:00', 1)));
+      expect(
+        NotificacionesService.idDeAlarma('t1', '08:00', 1),
+        isNot(NotificacionesService.idDeAlarma('t2', '08:00', 1)),
+      );
     });
 
     test('un conjunto representativo de tomas reales no repite ids', () {
@@ -88,6 +94,58 @@ void main() {
           }
         }
       }
+    });
+  });
+
+  group('NotificacionesService.puedeProgramar', () {
+    test('solo permite una sesión anónima con paciente local', () {
+      expect(
+        NotificacionesService.puedeProgramar(
+          sesionAnonima: true,
+          pacienteLocalId: 'p1',
+        ),
+        isTrue,
+      );
+      expect(
+        NotificacionesService.puedeProgramar(
+          sesionAnonima: false,
+          pacienteLocalId: 'p1',
+        ),
+        isFalse,
+      );
+      expect(
+        NotificacionesService.puedeProgramar(
+          sesionAnonima: true,
+          pacienteLocalId: null,
+        ),
+        isFalse,
+      );
+      expect(
+        NotificacionesService.puedeProgramar(
+          sesionAnonima: true,
+          pacienteLocalId: '   ',
+        ),
+        isFalse,
+      );
+    });
+
+    test('exige que el paciente local sea el esperado', () {
+      expect(
+        NotificacionesService.puedeProgramar(
+          sesionAnonima: true,
+          pacienteLocalId: 'p1',
+          pacienteEsperado: 'p2',
+        ),
+        isFalse,
+      );
+      expect(
+        NotificacionesService.puedeProgramar(
+          sesionAnonima: true,
+          pacienteLocalId: ' p1 ',
+          pacienteEsperado: 'p1',
+        ),
+        isTrue,
+      );
     });
   });
 }

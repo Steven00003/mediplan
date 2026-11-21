@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /404
+Sitemap: https://mediplan-35953.web.app/sitemap.xml

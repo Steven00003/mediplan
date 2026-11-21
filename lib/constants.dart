@@ -10,3 +10,9 @@ const String urlLanding = 'https://mediplan-35953.web.app';
 /// mostrarla. Debe actualizarse a mano cuando cambie `version` en `pubspec.yaml`
 /// (hoy `1.0.0+1`).
 const String appVersion = '1.0.0+1';
+
+/// Vigencia de un código de vinculación recién generado.
+///
+/// Pasado este tiempo el paciente debe pedir al cuidador que genere uno nuevo.
+/// Los vínculos antiguos sin `expiraEn` se siguen tratando como vigentes.
+const Duration duracionCodigoVinculacion = Duration(hours: 72);

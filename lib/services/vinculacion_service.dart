@@ -82,6 +82,22 @@ class VinculacionService {
     );
   }
 
+  /// Reemplaza el código de un paciente no vinculado, reintentando si el código
+  /// aleatorio choca con un documento de `vinculos` ya existente.
+  Future<String> regenerarCodigoVinculacion(String pacienteId) async {
+    for (var intento = 0; intento < 8; intento++) {
+      final codigo = generarCodigo();
+      try {
+        await _fs.reemplazarCodigoVinculacion(pacienteId, codigo);
+        return codigo;
+      } on CodigoVinculacionColisionException {
+        // Muy improbable, pero el código es global: se prueba otro.
+        continue;
+      }
+    }
+    throw StateError('No se pudo generar un código único. Inténtalo de nuevo.');
+  }
+
   /// Valida un código y vincula este dispositivo anónimo al paciente mediante
   /// escritura directa a Firestore. Devuelve un mensaje de error legible, o
   /// null si todo salió bien.
@@ -96,6 +112,8 @@ class VinculacionService {
     final Paciente? paciente;
     try {
       paciente = await _fs.vincularDispositivoPorCodigo(normalizado, uid);
+    } on CodigoVencidoException {
+      return 'Este código venció. Pide al cuidador que genere uno nuevo.';
     } on DispositivoVinculadoAOtroException {
       return 'Este código ya está vinculado a otro dispositivo. '
           'Pide al cuidador que lo desvincule.';

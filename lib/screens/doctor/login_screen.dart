@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/local_store.dart';
+import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_tokens.dart';
 import '../../utils/errores_amigables.dart';
@@ -67,6 +68,9 @@ class _LoginScreenState extends State<LoginScreen> {
       // hubiera quedado en este dispositivo. No usamos AppState: las rutas
       // abiertas con Navigator.push no ven su provider.
       if (mounted) {
+        // Limpieza única de alarmas de medicamentos que versiones anteriores
+        // dejaron programadas en el teléfono del cuidador.
+        await NotificacionesService().migrarAlarmasDeCuidador();
         await LocalStore.limpiarPacienteVinculado();
         if (mounted) Navigator.of(context).pop();
       }
@@ -103,6 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (ok) {
         await _auth.guardarPerfilUsuario();
         if (mounted) {
+          await NotificacionesService().migrarAlarmasDeCuidador();
           await LocalStore.limpiarPacienteVinculado();
           if (mounted) Navigator.of(context).pop();
         }

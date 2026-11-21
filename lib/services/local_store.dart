@@ -20,6 +20,29 @@ class LocalStore {
   static const _kUltimoCodigo = 'ultima_vinculacion_codigo';
   static const _kUltimoNombre = 'ultima_vinculacion_nombre';
 
+  // Migración de alarmas que versiones anteriores pudieron dejar programadas en
+  // el teléfono de un cuidador. La versión evita repetir la limpieza en cada
+  // login; `pendiente_reprogramar` avisa al paciente de que debe volver a
+  // programar sus alarmas la próxima vez que entre en este teléfono.
+  static const _kVersionMigracionAlarmas = 'migracion_alarmas_version';
+  static const _kPendienteReprogramarAlarmas =
+      'migracion_alarmas_pendiente_reprogramar';
+
+  /// Versión actual de la migración de alarmas.
+  static const int versionMigracionAlarmas = 1;
+
+  // Último reporte de `estadoDispositivo`. Sirve para no escribir Firestore más
+  // de una vez cada 30 min si los valores del celular no cambiaron.
+  static const _kEstadoDispositivoUltimoEnvio =
+      'estado_dispositivo_ultimo_envio';
+  static const _kEstadoDispositivoFirma = 'estado_dispositivo_firma';
+
+  // Aviso único del primer arranque como paciente y último error de
+  // sincronización local que se muestra en "Comprobar mi celular".
+  static const _kAvisoPermisosCelularMostrado =
+      'aviso_permisos_celular_mostrado';
+  static const _kUltimoErrorSincronizacion = 'ultimo_error_sincronizacion';
+
   /// Genera (la primera vez) o recupera el identificador estable de este
   /// dispositivo. Se usa como `dispositivoVinculadoId` en Firestore.
   static Future<String> getDispositivoId() async {
@@ -32,7 +55,10 @@ class LocalStore {
     return id;
   }
 
-  static Future<void> guardarPacienteVinculado(String pacienteId, String nombre) async {
+  static Future<void> guardarPacienteVinculado(
+    String pacienteId,
+    String nombre,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kPacienteId, pacienteId);
     await prefs.setString(_kPacienteNombre, nombre);
@@ -100,6 +126,95 @@ class LocalStore {
   static Future<void> marcarPantallaCompletaPreguntada() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kPantallaCompletaPreguntada, true);
+  }
+
+  /// Versión de la migración de alarmas ya aplicada en este dispositivo.
+  static Future<int> getVersionMigracionAlarmas() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kVersionMigracionAlarmas) ?? 0;
+  }
+
+  static Future<void> guardarVersionMigracionAlarmas(int version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kVersionMigracionAlarmas, version);
+  }
+
+  /// El teléfono dejó de ser paciente y debe reprogramar sus alarmas cuando
+  /// vuelva a entrar como paciente.
+  static Future<bool> getPendienteReprogramarAlarmas() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kPendienteReprogramarAlarmas) ?? false;
+  }
+
+  static Future<void> marcarPendienteReprogramarAlarmas() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPendienteReprogramarAlarmas, true);
+  }
+
+  static Future<void> limpiarPendienteReprogramarAlarmas() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kPendienteReprogramarAlarmas);
+  }
+
+  static Future<DateTime?> getUltimoEnvioEstadoDispositivo() async {
+    final prefs = await SharedPreferences.getInstance();
+    final ms = prefs.getInt(_kEstadoDispositivoUltimoEnvio);
+    if (ms == null || ms <= 0) return null;
+    return DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  static Future<String?> getFirmaEstadoDispositivo() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kEstadoDispositivoFirma);
+  }
+
+  static Future<void> guardarEnvioEstadoDispositivo({
+    required DateTime fecha,
+    required String firma,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      _kEstadoDispositivoUltimoEnvio,
+      fecha.millisecondsSinceEpoch,
+    );
+    await prefs.setString(_kEstadoDispositivoFirma, firma);
+  }
+
+  /// ¿Ya se mostró el aviso amable de permisos al entrar como paciente?
+  ///
+  /// Es único por instalación: si el paciente lo descarta, puede volver a la
+  /// pantalla desde "Comprobar mi celular" cuando quiera.
+  static Future<bool> getAvisoPermisosCelularMostrado() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kAvisoPermisosCelularMostrado) ?? false;
+  }
+
+  static Future<void> marcarAvisoPermisosCelularMostrado() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAvisoPermisosCelularMostrado, true);
+  }
+
+  /// Último error de sincronización local, ya traducido a texto para el
+  /// paciente. Se borra cuando la sincronización vuelve a funcionar.
+  static Future<String?> getUltimoErrorSincronizacion() async {
+    final prefs = await SharedPreferences.getInstance();
+    final texto = prefs.getString(_kUltimoErrorSincronizacion)?.trim() ?? '';
+    return texto.isEmpty ? null : texto;
+  }
+
+  static Future<void> guardarUltimoErrorSincronizacion(String error) async {
+    final limpio = error.trim();
+    if (limpio.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final limitado = limpio.length > 240
+        ? '${limpio.substring(0, 240)}…'
+        : limpio;
+    await prefs.setString(_kUltimoErrorSincronizacion, limitado);
+  }
+
+  static Future<void> limpiarUltimoErrorSincronizacion() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kUltimoErrorSincronizacion);
   }
 
   static String _generarId() {

@@ -15,6 +15,7 @@ import 'screens/doctor/dashboard_screen.dart';
 import 'screens/paciente/alarma_prueba_screen.dart';
 import 'screens/paciente/alarma_screen.dart';
 import 'screens/paciente/medicamentos_proximos_screen.dart';
+import 'services/conexion_service.dart';
 import 'services/diagnostico_service.dart';
 import 'services/firestore_service.dart';
 import 'services/notificaciones_service.dart';
@@ -32,11 +33,14 @@ class MediPlanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'MediPlan',
-      debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
-      home: const BootstrapScreen(),
+    return ChangeNotifierProvider<ConexionService>(
+      create: (_) => ConexionService(),
+      child: MaterialApp(
+        title: 'MediPlan',
+        debugShowCheckedModeBanner: false,
+        theme: buildAppTheme(),
+        home: const BootstrapScreen(),
+      ),
     );
   }
 }
@@ -194,18 +198,9 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
 
     _procesandoPayload = true;
     try {
-      // La alarma de prueba del diagnóstico no escribe en Firestore y no
-      // necesita paciente: solo abre una pantalla mínima.
+      // La alarma de prueba de "Comprobar mi celular" no escribe en Firestore
+      // y no necesita paciente: solo abre una pantalla mínima.
       if (payload.startsWith(NotificacionesService.prefijoPayloadPrueba)) {
-        if (!kDebugMode) {
-          await _registrarIntento(
-            payload,
-            'ignorada',
-            'la alarma de prueba está deshabilitada',
-          );
-          await _descartarPayloadInvalido();
-          return;
-        }
         final programada = _fechaDesdePayloadPrueba(payload);
         if (programada == null) {
           await _registrarIntento(
