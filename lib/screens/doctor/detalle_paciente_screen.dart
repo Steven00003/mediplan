@@ -9,6 +9,7 @@ import '../../models/tratamiento.dart';
 import '../../services/alerta_sin_tomas_service.dart';
 import '../../services/firestore_service.dart';
 import '../../services/notificaciones_service.dart';
+import '../../services/sincronizacion_paciente_service.dart';
 import '../../services/vinculacion_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_page_route.dart';
@@ -322,6 +323,7 @@ class _PestanaHorarioState extends State<_PestanaHorario> {
         horarios: tratamiento.horarios,
       );
       await FirestoreService().eliminarTratamiento(tratamiento.id);
+      SincronizacionPacienteService().programarEnvio(widget.paciente.id);
 
       if (context.mounted) {
         HapticFeedback.lightImpact();

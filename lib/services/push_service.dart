@@ -29,7 +29,8 @@ class PushService {
   PushService._interno();
 
   /// Credencial de la cuenta de servicio. Si no existe, el push queda apagado.
-  static const String rutaCredencial = 'assets/secrets/fcm_service_account.json';
+  static const String rutaCredencial =
+      'assets/secrets/fcm_service_account.json';
 
   static const String _scope =
       'https://www.googleapis.com/auth/firebase.messaging';
@@ -49,6 +50,11 @@ class PushService {
   String? _tokenActual;
   StreamSubscription<String>? _suscripcionToken;
   bool _pushHabilitado = false;
+
+  /// Rol que está usando este teléfono ahora mismo. El token FCM es el mismo
+  /// para ambos roles, pero se publica en un campo distinto de Firestore.
+  _RolPush _rol = _RolPush.ninguno;
+  String? _pacienteIdActual;
 
   /// ¿Se pudo leer la credencial? Si es false no hay push y el cuidador debe
   /// seguir apoyándose en las notificaciones locales del dashboard.
@@ -78,6 +84,8 @@ class PushService {
   /// registra en el log.
   Future<void> registrarCuidador() async {
     if (_auth.currentUser == null) return;
+    _rol = _RolPush.cuidador;
+    _pacienteIdActual = null;
     try {
       _suscripcionToken ??= _messaging.onTokenRefresh.listen(
         (token) => unawaited(_actualizarToken(token)),
@@ -138,7 +146,19 @@ class PushService {
 
   Future<void> _actualizarToken(String token) async {
     _tokenActual = token;
-    await _publicarToken(token);
+    switch (_rol) {
+      case _RolPush.cuidador:
+        await _publicarToken(token);
+        break;
+      case _RolPush.paciente:
+        final pacienteId = _pacienteIdActual;
+        if (pacienteId != null && pacienteId.isNotEmpty) {
+          await _publicarTokenPaciente(pacienteId, token);
+        }
+        break;
+      case _RolPush.ninguno:
+        break;
+    }
   }
 
   Future<void> _publicarToken(String? token) async {
@@ -152,9 +172,81 @@ class PushService {
     }
   }
 
+  /// Lado paciente: publica el token FCM en `pacientes/{id}.dispositivoFcmToken`.
+  ///
+  /// Es best-effort: si Firestore falla, las alarmas locales siguen
+  /// funcionando y el próximo arranque / refresco de token lo reintenta.
+  Future<void> registrarPaciente(String pacienteId) async {
+    final id = pacienteId.trim();
+    if (id.isEmpty) return;
+    _rol = _RolPush.paciente;
+    _pacienteIdActual = id;
+    try {
+      _suscripcionToken ??= _messaging.onTokenRefresh.listen(
+        (token) => unawaited(_actualizarToken(token)),
+      );
+      _tokenActual = await _obtenerToken();
+      await _publicarTokenPaciente(id, _tokenActual);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo registrar el teléfono del paciente: $e');
+      }
+    }
+  }
+
+  /// Reintenta publicar el token del paciente al volver del fondo o reingresar.
+  Future<void> sincronizarTokenPaciente() async {
+    final pacienteId = _pacienteIdActual;
+    if (_rol != _RolPush.paciente || pacienteId == null || pacienteId.isEmpty) {
+      return;
+    }
+    try {
+      _tokenActual ??= await _obtenerToken();
+      await _publicarTokenPaciente(pacienteId, _tokenActual);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo reintentar el token del paciente: $e');
+      }
+    }
+  }
+
+  Future<void> _publicarTokenPaciente(String pacienteId, String? token) async {
+    if (token == null || token.isEmpty) return;
+    try {
+      await _fs.guardarTokenDispositivo(pacienteId, token);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo guardar el token del paciente: $e');
+      }
+    }
+  }
+
+  /// Salida del modo paciente: borra el token de su documento para que el
+  /// cuidador no siga enviando avisos a un teléfono que ya no lo usa.
+  ///
+  /// No llama a `deleteToken()`: el mismo token FCM puede reutilizarse si este
+  /// teléfono entra después como cuidador. Solo se elimina el campo de
+  /// `pacientes/{id}`. Si el cuidador ya desvinculó el teléfono, la regla puede
+  /// rechazar el borrado; se ignora porque el token ya no sirve para ese doc.
+  Future<void> cerrarSesionPaciente({String? pacienteId}) async {
+    final id = (pacienteId ?? _pacienteIdActual)?.trim() ?? '';
+    _rol = _RolPush.ninguno;
+    _pacienteIdActual = null;
+    if (id.isEmpty) return;
+    try {
+      await _fs.limpiarTokenDispositivo(id);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo borrar el token del paciente: $e');
+      }
+    }
+  }
+
   /// Cierre de sesión del cuidador: borra el token de Firestore y del dispositivo
   /// para que este teléfono deje de recibir avisos de la cuenta que se va.
   Future<void> cerrarSesionCuidador() async {
+    _rol = _RolPush.ninguno;
+    _pacienteIdActual = null;
     await _suscripcionToken?.cancel();
     _suscripcionToken = null;
     _tokenActual = null;
@@ -164,6 +256,53 @@ class PushService {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('FCM: no se pudo limpiar el token: $e');
+      }
+    }
+  }
+
+  /// Lado cuidador: avisa al teléfono del paciente de que cambiaron sus
+  /// tratamientos para que rearme sus alarmas sin abrir la app.
+  ///
+  /// Es un mensaje **solo de datos** (sin `notification`) con prioridad alta y
+  /// TTL de una hora. No lleva nombre del paciente, medicamento, dosis ni
+  /// horarios: únicamente `tipo=sync` y el id que el propio teléfono valida.
+  ///
+  /// Best-effort: nunca lanza. Un fallo de red no afecta al guardado que ya
+  /// hizo el cuidador.
+  Future<void> notificarSincronizacionAlPaciente(String pacienteId) async {
+    if (!_pushHabilitado) return;
+    final id = pacienteId.trim();
+    if (id.isEmpty) return;
+    try {
+      final paciente = await _fs.getPaciente(id);
+      final token = paciente?.dispositivoFcmToken;
+      if (paciente == null || token == null || token.isEmpty) return;
+
+      final cliente = await _clienteAutenticado();
+      if (cliente == null) return;
+
+      final respuesta = await cliente
+          .post(
+            Uri.parse(
+              'https://fcm.googleapis.com/v1/projects/$_proyecto/messages:send',
+            ),
+            headers: const {'Content-Type': 'application/json; charset=UTF-8'},
+            body: jsonEncode({
+              'message': {
+                'token': token,
+                'android': {'priority': 'high', 'ttl': '3600s'},
+                'data': {'tipo': 'sync', 'pacienteId': id},
+              },
+            }),
+          )
+          .timeout(_timeout);
+
+      if (respuesta.statusCode != 200 && kDebugMode) {
+        debugPrint('FCM: sincronización rechazada (${respuesta.statusCode}).');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo enviar la sincronización: $e');
       }
     }
   }
@@ -209,10 +348,7 @@ class PushService {
                     'channel_id': NotificacionesService.canalCuidadorId,
                   },
                 },
-                'data': {
-                  'tipo': 'alerta_sin_tomas',
-                  'pacienteId': pacienteId,
-                },
+                'data': {'tipo': 'alerta_sin_tomas', 'pacienteId': pacienteId},
               },
             }),
           )
@@ -248,3 +384,5 @@ class PushService {
     }
   }
 }
+
+enum _RolPush { ninguno, cuidador, paciente }

@@ -20,6 +20,7 @@ import 'services/diagnostico_service.dart';
 import 'services/firestore_service.dart';
 import 'services/notificaciones_service.dart';
 import 'services/push_service.dart';
+import 'services/sincronizacion_paciente_service.dart';
 import 'services/ventana_alarma_service.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
@@ -97,6 +98,10 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       // Deja listo el push paciente → cuidador. Si no hay credencial en
       // `assets/secrets/`, el push queda desactivado y la app sigue igual.
       await PushService().inicializar();
+
+      // Empieza a escuchar los mensajes de sincronización con la app abierta.
+      // El rearme real ocurre en SincronizacionPacienteService y no bloquea la UI.
+      SincronizacionPacienteService().iniciarEscuchaAppAbierta();
 
       await _appState.cargarEstadoInicial();
     } catch (e) {

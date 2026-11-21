@@ -93,6 +93,7 @@ del modelo es solo el ID del documento, y se rellena al leer con
 | `contactoEmergencia` | `String?` | Opcional | Ficha del paciente |
 | `fotoBase64` | `String?` | Opcional | Foto en base64 dentro del documento (sin Storage) |
 | `cuidadorFcmToken` | `String?` | Opcional | Token FCM del cuidador, espejado aquí para que el paciente pueda enviarle la alerta de 5 días |
+| `dispositivoFcmToken` | `String?` | Opcional | Token FCM del teléfono del paciente; solo el dispositivo vinculado lo escribe. Permite al cuidador avisar de cambios de tratamiento en segundo plano |
 
 El modelo completo está en `paciente.dart:17-26` y `fromMap`/`toMap` en
 `paciente.dart:64-93`. `crearPaciente` escribe los opcionales como `null` cuando
@@ -589,6 +590,37 @@ El **único** envío FCM que queda es la alerta de **5 días sin tomas**:
 - **No hay otro camino FCM.** No existe `notificarConfirmacion` ni ningún otro
   `messages:send`; el dashboard solo muestra notificaciones locales mientras la
   app está visible (`dashboard_screen.dart:122-150`).
+
+### Sincronización del paciente en segundo plano
+
+Cuando el cuidador crea, edita, borra o finaliza un tratamiento, la app envía
+un push de **solo datos** al teléfono del paciente:
+
+- Enviador: `PushService.notificarSincronizacionAlPaciente`
+  (`push_service.dart`), con `tipo: sync` y el `pacienteId`. **No** lleva nombre
+  del medicamento, dosis ni horarios; el paciente relee todo de Firestore. La
+  prioridad Android es `high` y el TTL es de 3600 s.
+- Agrupación: `SincronizacionPacienteService.programarEnvio` acumula cambios
+  durante 10 s (`debounceSincronizacionPaciente`) para no enviar un push por
+  cada edición.
+- Recepción con la app cerrada: `manejarMensajeSincronizacionFondo`
+  (`main.dart`) es la función de nivel superior registrada con
+  `onBackgroundMessage`. Inicializa Firebase, la zona horaria con
+  `flutter_timezone`, registra el plugin de notificaciones y llama a
+  `SincronizacionPacienteService.procesarMensaje`, que valida la vinculación
+  local, lee los tratamientos del servidor (timeout de 8 s y luego caché),
+  rearma la ventana de alarmas y actualiza `estadoDispositivo` respetando el
+  throttle de 30 minutos.
+- Con la app abierta: `FirebaseMessaging.onMessage` ejecuta el mismo rearme de
+  inmediato (`iniciarEscuchaAppAbierta`).
+- Seguridad: se ignora cualquier mensaje cuyo `pacienteId` no coincida con la
+  vinculación local o cuyo UID no sea el `dispositivoVinculadoId`. El mensaje
+  no autoriza nada por sí mismo.
+
+**Limitación conocida:** si el usuario fuerza la detención de la app o el
+fabricante bloquea el arranque en segundo plano, el mensaje no se procesa hasta
+que el paciente abra la app. El cuidador verá el estado en la tarjeta
+“Celular del paciente” (`detalle_paciente_screen.dart`).
 - Respaldo en la app del cuidador: `_AvisoSinTomas` recalcula lo mismo al abrir
   el detalle del paciente y pinta una tarjeta, **sin enviar FCM**
   (`detalle_paciente_screen.dart:373-484`).

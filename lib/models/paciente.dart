@@ -15,6 +15,11 @@ import 'estado_dispositivo.dart';
 /// quien envía la notificación y las reglas no le dejan leer el documento del
 /// cuidador. También es OPCIONAL: puede faltar mientras el cuidador no haya
 /// abierto su app con permiso de notificaciones.
+///
+/// [dispositivoFcmToken] es el token del teléfono del paciente. Lo escribe solo
+/// ese dispositivo, para que el cuidador pueda avisarle de cambios de
+/// tratamiento mediante un push de datos. Es opcional y no se incluye en
+/// [toMap]: el cuidador nunca debe pisarlo al crear o editar la ficha.
 class Paciente {
   final String id;
   final String nombre;
@@ -26,6 +31,7 @@ class Paciente {
   final String? contactoEmergencia;
   final String? fotoBase64;
   final String? cuidadorFcmToken;
+  final String? dispositivoFcmToken;
 
   /// Reporte del celular del paciente. Es `null` en documentos antiguos o
   /// mientras el paciente no haya abierto esta versión de la app.
@@ -42,6 +48,7 @@ class Paciente {
     this.contactoEmergencia,
     this.fotoBase64,
     this.cuidadorFcmToken,
+    this.dispositivoFcmToken,
     this.estadoDispositivo,
   });
 
@@ -84,6 +91,7 @@ class Paciente {
       contactoEmergencia: map['contactoEmergencia'] as String?,
       fotoBase64: map['fotoBase64'] as String?,
       cuidadorFcmToken: map['cuidadorFcmToken'] as String?,
+      dispositivoFcmToken: map['dispositivoFcmToken'] as String?,
       estadoDispositivo: EstadoDispositivo.fromValor(map['estadoDispositivo']),
     );
   }
@@ -100,9 +108,9 @@ class Paciente {
       'contactoEmergencia': contactoEmergencia,
       'fotoBase64': fotoBase64,
       'cuidadorFcmToken': cuidadorFcmToken,
-      // `estadoDispositivo` NO se incluye a propósito: lo escribe únicamente el
-      // dispositivo del paciente con `actualizarEstadoDispositivo`. Así una
-      // edición del cuidador no lo borra ni lo pisa.
+      // `estadoDispositivo` y `dispositivoFcmToken` NO se incluyen a propósito:
+      // los escribe únicamente el dispositivo del paciente. Así una creación o
+      // edición del cuidador no los borra ni los pisa.
     };
   }
 }

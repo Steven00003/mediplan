@@ -225,6 +225,26 @@ class NotificacionesService {
     await _crearCanales();
   }
 
+  /// Prepara el plugin dentro del isolate de FCM en segundo plano.
+  ///
+  /// La zona horaria ya la fijó el manejador de fondo con `flutter_timezone`;
+  /// aquí solo se registra el plugin y se crean los canales para poder
+  /// reprogramar alarmas y reportar el estado del celular.
+  Future<void> prepararParaSegundoPlano() async {
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const darwinInit = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidInit,
+      iOS: darwinInit,
+    );
+    await _plugin.initialize(initSettings);
+    await _crearCanales();
+  }
+
   /// Recibe el toque de una notificación con la app ya en marcha.
   void _alRecibirRespuesta(NotificationResponse respuesta) {
     _registrarPayload(respuesta.payload, idNotificacion: respuesta.id);

@@ -7,6 +7,7 @@ import '../../models/tratamiento.dart';
 import '../../services/firestore_service.dart';
 import '../../services/imagen_service.dart';
 import '../../services/notificaciones_service.dart';
+import '../../services/sincronizacion_paciente_service.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/errores_amigables.dart';
 import '../../utils/vigencia_tratamiento.dart';
@@ -295,6 +296,11 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
       } else {
         await _fs.actualizarTratamiento(tratamiento);
       }
+
+      // Avisa al teléfono del paciente de que rearme sus alarmas. Es un push
+      // de datos con debounce de 10 s: no bloquea el guardado ni muestra
+      // errores al doctor.
+      SincronizacionPacienteService().programarEnvio(widget.pacienteId);
 
       // Cancela las notificaciones del estado ANTERIOR de este tratamiento
       // (alarma, aviso previo y recordatorio tardío de todas sus

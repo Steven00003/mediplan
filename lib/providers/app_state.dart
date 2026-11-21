@@ -12,6 +12,7 @@ import '../services/firestore_service.dart';
 import '../services/local_store.dart';
 import '../services/omitidas_service.dart';
 import '../services/notificaciones_service.dart';
+import '../services/push_service.dart';
 import '../services/vinculacion_service.dart';
 import '../utils/errores_amigables.dart';
 import '../utils/reingreso_paciente.dart';
@@ -105,6 +106,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       unawaited(_reconciliarOmitidas(forzar: true));
       unawaited(_reportarEstadoDispositivo());
+      // Reintenta publicar el token del paciente si el primer intento falló
+      // sin red o si el documento se regeneró mientras la app estaba fuera.
+      unawaited(PushService().sincronizarTokenPaciente());
     }
   }
 
@@ -344,6 +348,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
     _pacienteVinculado = paciente;
     _arrancarTimerOmitidas();
+    unawaited(PushService().registrarPaciente(paciente.id));
 
     // Si este teléfono fue cuidador y la migración canceló sus alarmas, al
     // volver a entrar como paciente se reprograman todas una sola vez.
@@ -411,6 +416,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _pacienteVinculado = paciente;
     _omitidas.invalidar();
     _arrancarTimerOmitidas();
+    unawaited(PushService().registrarPaciente(paciente.id));
     unawaited(_reconciliarOmitidas(forzar: true));
     unawaited(_reportarEstadoDispositivo());
     _escucharPacienteDoc(paciente.id);
@@ -422,6 +428,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> limpiarFlagDePaciente() async {
     await _pacienteSub?.cancel();
     _pacienteSub = null;
+    unawaited(
+      PushService().cerrarSesionPaciente(pacienteId: _pacienteVinculado?.id),
+    );
     await LocalStore.limpiarPacienteVinculado();
     _pacienteVinculado = null;
     _pararTimerOmitidas();
@@ -533,6 +542,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _pacienteVinculado = paciente;
     _omitidas.invalidar();
     _arrancarTimerOmitidas();
+    unawaited(PushService().registrarPaciente(paciente.id));
     _escucharPacienteDoc(paciente.id);
     notifyListeners();
   }
@@ -600,8 +610,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     required bool borrarRecordada,
     required bool cerrarSesionAnonima,
   }) async {
+    final pacienteId = _pacienteVinculado?.id;
     await _pacienteSub?.cancel();
     _pacienteSub = null;
+    // Se lanza antes de limpiar el flag local para que el UID todavía sea el
+    // dispositivo vinculado. No se espera: un Firestore lento no debe retrasar
+    // la salida ni el cierre de sesión del paciente.
+    unawaited(PushService().cerrarSesionPaciente(pacienteId: pacienteId));
     // Se cancelan antes de borrar el flag local: `cancelarTodas` exige que este
     // teléfono siga siendo una sesión de paciente activa.
     await _notif.cancelarTodas();

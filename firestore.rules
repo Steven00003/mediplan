@@ -31,7 +31,17 @@ service cloud.firestore {
     // Único mapa que el celular del paciente puede escribir en su documento.
     // Se validan las claves exactas, el timestamp del servidor y los tipos/tamaños
     // para que el dispositivo no pueda modificar la ficha ni los vínculos.
-    function estadoDispositivoValido() {
+    // Token FCM del teléfono del paciente. Solo puede cambiarlo el dispositivo
+    // vinculado, junto con o independiente de `estadoDispositivo`. Si se borra,
+    // el campo desaparece del documento.
+    function tokenDispositivoValido() {
+      return !request.resource.data.keys().hasAny(['dispositivoFcmToken'])
+          || (request.resource.data.get('dispositivoFcmToken', null) is string
+              && request.resource.data.get('dispositivoFcmToken', '').size() >= 20
+              && request.resource.data.get('dispositivoFcmToken', '').size() <= 4096);
+    }
+
+  function estadoDispositivoValido() {
       let estado = request.resource.data.get('estadoDispositivo', null);
       return estado is map
           && estado.keys().hasAll([
@@ -95,8 +105,15 @@ service cloud.firestore {
           (esDispositivoVinculado(pacienteId)
            && request.resource.data.diff(resource.data)
                 .affectedKeys()
-                .hasOnly(['estadoDispositivo'])
-           && estadoDispositivoValido())
+                .hasOnly(['estadoDispositivo', 'dispositivoFcmToken'])
+           && (!request.resource.data.diff(resource.data)
+                  .affectedKeys()
+                  .hasAny(['estadoDispositivo'])
+               || estadoDispositivoValido())
+           && (!request.resource.data.diff(resource.data)
+                  .affectedKeys()
+                  .hasAny(['dispositivoFcmToken'])
+               || tokenDispositivoValido()))
       );
       allow delete: if isAuthenticated()
                     && request.auth.uid == resource.data.cuidadorId;

@@ -239,6 +239,26 @@ class FirestoreService {
     }
   }
 
+  /// Guarda el token FCM del teléfono del paciente en su propio documento.
+  ///
+  /// Solo el dispositivo vinculado puede escribir este campo: la regla de
+  /// `pacientes` lo limita junto con `estadoDispositivo`. El cuidador nunca lo
+  /// escribe, porque su token es `cuidadorFcmToken`.
+  Future<void> guardarTokenDispositivo(String pacienteId, String token) async {
+    if (pacienteId.isEmpty || token.isEmpty) return;
+    await _pacientesCollection().doc(pacienteId).update({
+      'dispositivoFcmToken': token,
+    });
+  }
+
+  /// Borra el token FCM del teléfono del paciente al salir del modo paciente.
+  Future<void> limpiarTokenDispositivo(String pacienteId) async {
+    if (pacienteId.isEmpty) return;
+    await _pacientesCollection().doc(pacienteId).update({
+      'dispositivoFcmToken': FieldValue.delete(),
+    });
+  }
+
   // ---------------------------------------------------------------------
   // Tratamientos
   // ---------------------------------------------------------------------
@@ -959,9 +979,14 @@ class FirestoreService {
   /// vacío (que las reglas de `firestore.rules` tratan como "libre").
   /// Solo el cuidador dueño puede: las reglas exigen que quien escribe sea el
   /// `cuidadorId` del documento.
+  ///
+  /// Borra también el token de push del teléfono para no dejar un destino
+  /// huérfano. El dispositivo desvinculado ya no puede limpiarlo por reglas.
   Future<void> desvincularDispositivo(String pacienteId) async {
     await _pacientesCollection().doc(pacienteId).update({
       'dispositivoVinculadoId': '',
+      'dispositivoFcmToken': FieldValue.delete(),
+      'estadoDispositivo': FieldValue.delete(),
     });
 
     final paciente = await getPaciente(pacienteId);
