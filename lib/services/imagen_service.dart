@@ -24,17 +24,20 @@ class ImagenService {
 
       // Redimensiona manteniendo la proporción para no exceder el lado máximo.
       if (imagen.width > maxDimension || imagen.height > maxDimension) {
-        imagen = img.copyResize(imagen,
-            width: imagen.width > imagen.height ? maxDimension : null,
-            height: imagen.width > imagen.height ? null : maxDimension,
-            interpolation: img.Interpolation.linear);
+        imagen = img.copyResize(
+          imagen,
+          width: imagen.width > imagen.height ? maxDimension : null,
+          height: imagen.width > imagen.height ? null : maxDimension,
+          interpolation: img.Interpolation.linear,
+        );
       }
 
       var calidad = 85;
       Uint8List? comprimida;
       while (calidad >= 30) {
         comprimida = Uint8List.fromList(
-            img.encodeJpg(imagen, quality: calidad));
+          img.encodeJpg(imagen, quality: calidad),
+        );
         if (comprimida.length <= maxBytes) break;
         calidad -= 15;
       }
@@ -43,6 +46,38 @@ class ImagenService {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Error foto: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Versión para la miniatura del perfil del doctor: lado máximo 256 px y
+  /// tope de 60 KB, para que quepa holgadamente en `medicos/{uid}`.
+  Future<String?> fotoPerfilABase64(Uint8List bytes) async {
+    try {
+      img.Image? imagen = img.decodeImage(bytes);
+      if (imagen == null) return null;
+      if (imagen.width > 256 || imagen.height > 256) {
+        imagen = img.copyResize(
+          imagen,
+          width: imagen.width > imagen.height ? 256 : null,
+          height: imagen.width > imagen.height ? null : 256,
+          interpolation: img.Interpolation.linear,
+        );
+      }
+      var calidad = 85;
+      Uint8List? comprimida;
+      while (calidad >= 20) {
+        comprimida = Uint8List.fromList(
+          img.encodeJpg(imagen, quality: calidad),
+        );
+        if (comprimida.length <= 60 * 1024) break;
+        calidad -= 15;
+      }
+      return '$_prefijo${base64Encode(comprimida!)}';
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error foto de perfil: $e');
       }
       return null;
     }

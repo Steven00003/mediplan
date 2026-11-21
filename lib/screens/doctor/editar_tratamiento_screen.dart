@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -287,6 +288,9 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
       // Se conserva el aviso ya enviado; editar el tratamiento no debe
       // reiniciar el control de "5 días sin tomas".
       ultimoAvisoSinTomas: widget.tratamiento?.ultimoAvisoSinTomas,
+      recetadoPorId:
+          FirebaseAuth.instance.currentUser?.uid ??
+          widget.tratamiento?.recetadoPorId,
     );
 
     try {

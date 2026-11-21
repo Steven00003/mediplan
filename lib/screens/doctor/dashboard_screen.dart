@@ -20,6 +20,7 @@ import '../../widgets/estados.dart';
 import '../../widgets/lista_pacientes.dart';
 import '../../widgets/menu_ayuda.dart';
 import 'detalle_paciente_screen.dart';
+import 'mi_perfil_medico_screen.dart';
 import 'nuevo_paciente_screen.dart';
 
 /// Dashboard del cuidador: lista de pacientes vinculados en tiempo real y
@@ -214,6 +215,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         appBar: AppBar(
           title: const Text('Mis pacientes'),
           actions: [
+            IconButton(
+              tooltip: 'Mi perfil',
+              onPressed: () {
+                Navigator.of(context).push(
+                  AppPageRoute(builder: (_) => const MiPerfilMedicoScreen()),
+                );
+              },
+              icon: const Icon(Icons.person_outline),
+            ),
             const AyudaBoton(),
             Semantics(
               button: true,

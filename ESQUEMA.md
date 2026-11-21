@@ -286,6 +286,43 @@ con otro código (`vinculacion_service.dart:87-99`). No hay unicidad global.
 
 ---
 
+## `medicos/{uid}`
+
+Perfil público del doctor que ven sus pacientes vinculados. El id del
+documento es el **UID de Firebase Auth** del cuidador, no un id autogenerado.
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `nombre` | `String` | Obligatorio, máx. 80 caracteres |
+| `titulo` | `String` | Estudios, máx. 120 caracteres |
+| `especialidad` | `String` | Máx. 80 caracteres |
+| `fotoBase64` | `String?` | Data URI JPEG, miniatura de 256 px y máx. 60 KB |
+| `actualizadoEn` | `Timestamp` | `FieldValue.serverTimestamp()` |
+
+Modelo: `lib/models/medico.dart`. Validación pura:
+`lib/utils/validacion_perfil_medico.dart`. Compresión:
+`ImagenService.fotoPerfilABase64` (`lib/services/imagen_service.dart`).
+Lectura del paciente: `FirestoreService.getMedico`, **un solo `get`** con
+timeout de 8 s y caída a caché; si falla o no existe, la tarjeta no se muestra.
+
+**Reglas** (`firestore.rules`, bloque `match /medicos/{uid}`):
+
+- `get` para cualquier usuario autenticado; `list` explícitamente denegado.
+- `create`, `update` y `delete` solo del dueño (`request.auth.uid == uid`) con
+  sesión **no anónima**.
+- `create`/`update` exigen exactamente las cinco claves, con los tipos y
+  tamaños indicados y `actualizadoEn == request.time`.
+
+**Riesgo:** cualquiera que conozca el uid puede leer ese perfil. El uid no es
+adivinable y el documento solo contiene datos pensados para los pacientes.
+
+**Alternativa descartada:** copiar el perfil en cada `pacientes/{id}`.
+Requiere reescribir todos los pacientes al cambiar el perfil (más escrituras,
+coste y posibilidad de datos desincronizados), además de duplicar la foto.
+
+Los pacientes ven el cambio la próxima vez que abren Horario o el detalle; no
+hay push para este perfil.
+
 ## `tratamientos/{id}`
 
 ### ID del documento
@@ -312,6 +349,7 @@ reescriben todos los campos. Por eso el editor conserva explícitamente
 | `fechaInicio` | `Timestamp?` (en Dart, `DateTime?`) | Opcional; **null** en documentos viejos | Fecha local **sin hora** desde la que cuenta el tratamiento |
 | `duracionDias` | `int?` | Opcional; **null** = continuo o desconocido | Días de duración; junto con `fechaInicio` define la fecha de fin |
 | `ultimoAvisoSinTomas` | `Timestamp?` (en Dart, `DateTime?`) | Opcional; **null** = sin aviso pendiente | Fecha local del último push de 5 días sin tomas; evita repetirlo el mismo día y se borra al romper la racha |
+| `recetadoPorId` | `String?` | Opcional en documentos antiguos | UID del cuidador que recetó. Si falta, se usa `paciente.cuidadorId` (`lib/utils/medico_tratamiento.dart`) |
 
 Los campos están en `tratamiento.dart:56-67`, se leen en `fromMap`
 (`:83-98`) y se escriben siempre en `toMap` (`:140-153`). `fechaInicio` y

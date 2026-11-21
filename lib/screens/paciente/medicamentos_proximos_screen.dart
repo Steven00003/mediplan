@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/medico.dart';
 import '../../models/registro_toma.dart';
 import '../../models/tratamiento.dart';
 import '../../providers/app_state.dart';
@@ -55,6 +57,9 @@ class _MedicamentosProximosScreenState
   Stream<List<RegistroToma>>? _registrosHoy;
   String? _pacienteIdRegistros;
 
+  /// Perfil del médico, leído una sola vez al cargar el Horario.
+  Future<Medico?>? _medicoFuture;
+
   /// 0 = "Horario" (pestaña inicial, la función principal), 1 = "Historial".
   int _pestana = 0;
 
@@ -87,6 +92,10 @@ class _MedicamentosProximosScreenState
     if (id == _pacienteIdRegistros) return;
     _pacienteIdRegistros = id;
     _registrosHoy = _fs.streamRegistrosDePacienteHoy(id);
+    final cuidadorId = context.read<AppState>().pacienteVinculado?.cuidadorId;
+    if (cuidadorId != null && cuidadorId.isNotEmpty) {
+      _medicoFuture = _fs.getMedico(cuidadorId);
+    }
   }
 
   @override
@@ -462,6 +471,7 @@ class _MedicamentosProximosScreenState
         const BannerSinConexion(
           mensaje: 'Sin conexión. Tus alarmas siguen funcionando.',
         ),
+        if (_medicoFuture != null) _TarjetaMiMedico(futuro: _medicoFuture!),
         _AccesoComprobarCelular(
           onAbrir: _abrirComprobarCelular,
           onAyuda: () => mostrarMenuAyuda(context, esPaciente: true),
@@ -560,6 +570,10 @@ class _MedicamentosProximosScreenState
                               builder: (_) => DetalleMedicamentoPacienteScreen(
                                 pacienteId: pacienteId,
                                 tratamiento: t,
+                                cuidadorIdPaciente: context
+                                    .read<AppState>()
+                                    .pacienteVinculado
+                                    ?.cuidadorId,
                               ),
                             ),
                           );
@@ -598,6 +612,90 @@ class _MedicamentosProximosScreenState
     if (salir && mounted) {
       await appState.salirDelModoPaciente();
     }
+  }
+}
+
+/// Tarjeta compacta con el perfil público del médico del paciente.
+class _TarjetaMiMedico extends StatefulWidget {
+  final Future<Medico?> futuro;
+
+  const _TarjetaMiMedico({required this.futuro});
+
+  @override
+  State<_TarjetaMiMedico> createState() => _TarjetaMiMedicoState();
+}
+
+class _TarjetaMiMedicoState extends State<_TarjetaMiMedico> {
+  Uint8List? _bytesFoto;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.futuro.then((medico) {
+      final foto = medico?.fotoBase64;
+      if (!mounted || foto == null || foto.isEmpty) return;
+      // La foto se decodifica una sola vez, no en cada rebuild del FutureBuilder.
+      setState(() => _bytesFoto = ImagenService.decodificar(foto));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Medico?>(
+      future: widget.futuro,
+      builder: (context, snap) {
+        final medico = snap.data;
+        if (medico == null) return const SizedBox.shrink();
+        return Card(
+          child: ExpansionTile(
+            leading: CircleAvatar(
+              backgroundColor: AppColors.primary,
+              foregroundImage: _bytesFoto != null
+                  ? MemoryImage(_bytesFoto!)
+                  : null,
+              child: _bytesFoto == null
+                  ? const Icon(Icons.person, color: AppColors.primaryStrong)
+                  : null,
+            ),
+            title: Text(
+              medico.nombre,
+              style: AppType.body.copyWith(
+                color: AppColors.onGreen,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            subtitle: medico.especialidad.isEmpty
+                ? null
+                : Text(
+                    medico.especialidad,
+                    style: AppType.label.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+            children: [
+              if (medico.titulo.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.sm,
+                    0,
+                    AppSpacing.sm,
+                    AppSpacing.sm,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Estudios: ${medico.titulo}',
+                      style: AppType.body.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../constants.dart';
 import '../models/estado_dispositivo.dart';
+import '../models/medico.dart';
 import '../models/paciente.dart';
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
@@ -257,6 +258,41 @@ class FirestoreService {
     await _pacientesCollection().doc(pacienteId).update({
       'dispositivoFcmToken': FieldValue.delete(),
     });
+  }
+
+  // ---------------------------------------------------------------------
+  // Perfil del doctor (visible para sus pacientes)
+  // ---------------------------------------------------------------------
+
+  CollectionReference<Map<String, dynamic>> _medicosCollection() =>
+      _db.collection('medicos');
+
+  Future<void> guardarPerfilMedico(Medico medico) async {
+    await _medicosCollection().doc(medico.uid).set(medico.toMap());
+  }
+
+  /// Una sola lectura del perfil, con timeout de servidor y caída a caché.
+  /// Devuelve `null` si no existe o falla: la tarjeta del paciente se oculta.
+  Future<Medico?> getMedico(String uid) async {
+    if (uid.trim().isEmpty) return null;
+    try {
+      final doc = await _medicosCollection()
+          .doc(uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 8));
+      if (!doc.exists) return null;
+      return Medico.fromMap(doc.id, doc.data()!);
+    } catch (_) {
+      try {
+        final doc = await _medicosCollection()
+            .doc(uid)
+            .get(const GetOptions(source: Source.cache));
+        if (!doc.exists) return null;
+        return Medico.fromMap(doc.id, doc.data()!);
+      } catch (_) {
+        return null;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------

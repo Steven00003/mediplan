@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../models/medico.dart';
 import '../../models/registro_toma.dart';
 import '../../models/tratamiento.dart';
 import '../../services/firestore_service.dart';
@@ -10,6 +11,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_tokens.dart';
 import '../../utils/errores_amigables.dart';
 import '../../utils/etiqueta_toma.dart';
+import '../../utils/medico_tratamiento.dart';
 import '../../utils/proxima_toma.dart';
 import '../../utils/vigencia_tratamiento.dart';
 import '../../utils/ventana_confirmacion.dart';
@@ -24,11 +26,13 @@ import 'alarma_screen.dart';
 class DetalleMedicamentoPacienteScreen extends StatefulWidget {
   final String pacienteId;
   final Tratamiento tratamiento;
+  final String? cuidadorIdPaciente;
 
   const DetalleMedicamentoPacienteScreen({
     super.key,
     required this.pacienteId,
     required this.tratamiento,
+    this.cuidadorIdPaciente,
   });
 
   @override
@@ -42,6 +46,7 @@ class _DetalleMedicamentoPacienteScreenState
   final String? _recetadoPor = null;
   Timer? _reloj;
   late final Future<List<RegistroToma>> _historial;
+  Future<Medico?>? _medico;
 
   /// Hora pendiente dentro de la ventana de confirmación, si la hay.
   TimeOfDay? _horaPendiente;
@@ -53,6 +58,13 @@ class _DetalleMedicamentoPacienteScreenState
       widget.pacienteId,
       widget.tratamiento.id,
     );
+    final medicoId = idMedicoRecetador(
+      widget.tratamiento,
+      widget.cuidadorIdPaciente,
+    );
+    if (medicoId != null && medicoId.isNotEmpty) {
+      _medico = _fs.getMedico(medicoId);
+    }
     _reloj = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -321,17 +333,28 @@ class _DetalleMedicamentoPacienteScreenState
               );
             },
           ),
-          // Espacio reservado para "Recetado por" cuando exista el dato.
-          if (recetadoPor != null && recetadoPor.isNotEmpty) ...[
+          if (_medico != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            FutureBuilder<Medico?>(
+              future: _medico,
+              builder: (context, snap) {
+                final nombre = snap.data?.nombre.trim() ?? '';
+                if (nombre.isEmpty) return const SizedBox.shrink();
+                return Text(
+                  'Recetado por $nombre',
+                  style: AppType.body.copyWith(color: AppColors.textSecondary),
+                );
+              },
+            ),
+          ],
+          // Espacio reservado para "Recetado por" cuando no haya perfil.
+          if (_medico == null &&
+              recetadoPor != null &&
+              recetadoPor.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
             Text(
               'Recetado por',
               style: AppType.title.copyWith(color: AppColors.onGreen),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              recetadoPor,
-              style: AppType.body.copyWith(color: AppColors.textSecondary),
             ),
           ],
         ],

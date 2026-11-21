@@ -66,6 +66,10 @@ class Tratamiento {
   final int? duracionDias;
   final DateTime? ultimoAvisoSinTomas;
 
+  /// UID del cuidador que recetó el tratamiento. Los documentos nuevos lo
+  /// escriben; los antiguos no lo tienen y se usa `paciente.cuidadorId`.
+  final String? recetadoPorId;
+
   const Tratamiento({
     required this.id,
     required this.pacienteId,
@@ -78,6 +82,7 @@ class Tratamiento {
     this.fechaInicio,
     this.duracionDias,
     this.ultimoAvisoSinTomas,
+    this.recetadoPorId,
   });
 
   factory Tratamiento.fromMap(String id, Map<String, dynamic> map) {
@@ -94,6 +99,7 @@ class Tratamiento {
       fechaInicio: _parseFecha(map['fechaInicio']),
       duracionDias: _parseEnteroPositivo(map['duracionDias']),
       ultimoAvisoSinTomas: _parseFecha(map['ultimoAvisoSinTomas']),
+      recetadoPorId: map['recetadoPorId'] as String?,
     );
   }
 
@@ -150,6 +156,7 @@ class Tratamiento {
       'fechaInicio': fechaInicio,
       'duracionDias': duracionDias,
       'ultimoAvisoSinTomas': ultimoAvisoSinTomas,
+      'recetadoPorId': recetadoPorId,
     };
   }
 }

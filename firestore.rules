@@ -83,6 +83,41 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Perfil público del doctor. Cualquier usuario autenticado que conozca el
+    // uid puede hacer get, pero NO listar la colección. El uid no es adivinable.
+    // Solo contiene datos pensados para los pacientes.
+    function perfilMedicoValido() {
+      return request.resource.data.keys().hasAll([
+               'nombre', 'titulo', 'especialidad', 'fotoBase64', 'actualizadoEn'
+             ])
+          && request.resource.data.keys().hasOnly([
+               'nombre', 'titulo', 'especialidad', 'fotoBase64', 'actualizadoEn'
+             ])
+          && request.resource.data.get('nombre', null) is string
+          && request.resource.data.get('nombre', '').size() > 0
+          && request.resource.data.get('nombre', '').size() <= 80
+          && request.resource.data.get('titulo', null) is string
+          && request.resource.data.get('titulo', '').size() <= 120
+          && request.resource.data.get('especialidad', null) is string
+          && request.resource.data.get('especialidad', '').size() <= 80
+          && (request.resource.data.get('fotoBase64', null) == null
+              || (request.resource.data.get('fotoBase64', null) is string
+                  && request.resource.data.get('fotoBase64', '').size() <= 82000))
+          && request.resource.data.get('actualizadoEn', null) == request.time;
+    }
+
+    match /medicos/{uid} {
+      allow get: if isAuthenticated();
+      allow list: if false;
+      allow create, update: if isAuthenticated()
+          && request.auth.token.firebase.sign_in_provider != 'anonymous'
+          && request.auth.uid == uid
+          && perfilMedicoValido();
+      allow delete: if isAuthenticated()
+          && request.auth.token.firebase.sign_in_provider != 'anonymous'
+          && request.auth.uid == uid;
+    }
+
     match /pacientes/{pacienteId} {
       allow read: if isAuthenticated()
               && (request.auth.uid == resource.data.cuidadorId
