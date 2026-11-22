@@ -275,9 +275,30 @@ class PushService {
     if (id.isEmpty) return;
     try {
       final paciente = await _fs.getPaciente(id);
-      final token = paciente?.dispositivoFcmToken;
-      if (paciente == null || token == null || token.isEmpty) return;
+      final token = paciente?.dispositivoFcmToken?.trim() ?? '';
+      if (token.isEmpty) return;
+      await notificarSincronizacionConToken(pacienteId: id, token: token);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('FCM: no se pudo enviar la sincronización: $e');
+      }
+    }
+  }
 
+  /// Variante que envía el mensaje de sincronización usando un token ya leído.
+  ///
+  /// Se usa tras borrar un paciente, cuando Firestore ya no es legible. No vuelve
+  /// a leer el documento y nunca lanza: un fallo de red no debe afectar el
+  /// borrado que ya terminó con éxito.
+  Future<void> notificarSincronizacionConToken({
+    required String pacienteId,
+    required String token,
+  }) async {
+    if (!_pushHabilitado) return;
+    final id = pacienteId.trim();
+    final tokenLimpio = token.trim();
+    if (id.isEmpty || tokenLimpio.isEmpty) return;
+    try {
       final cliente = await _clienteAutenticado();
       if (cliente == null) return;
 
@@ -289,7 +310,7 @@ class PushService {
             headers: const {'Content-Type': 'application/json; charset=UTF-8'},
             body: jsonEncode({
               'message': {
-                'token': token,
+                'token': tokenLimpio,
                 'android': {'priority': 'high', 'ttl': '3600s'},
                 'data': {'tipo': 'sync', 'pacienteId': id},
               },

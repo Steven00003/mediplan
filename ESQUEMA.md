@@ -583,6 +583,46 @@ que desplegar el archivo del repo lo crea.
 
 ---
 
+## Eliminación de un paciente
+
+La implementa `FirestoreService.eliminarPaciente` y se lanza desde el menú de
+tres puntos del detalle, tras escribir el nombre exacto del paciente.
+
+Datos asociados a un `pacienteId` (no hay subcolecciones):
+
+| Colección | Cómo se identifica | Archivo |
+|---|---|---|
+| `pacientes/{id}` | id del documento | `firestore_service.dart` (`_pacientesCollection`) |
+| `tratamientos/{id}` | campo `pacienteId` | `firestore_service.dart` (`_tratamientosCollection`) |
+| `registrosToma/{id}` | campo `pacienteId` (historial y tomas olvidadas) | `firestore_service.dart` (`_registrosCollection`) |
+| `vinculos/{codigo}` | campo `pacienteId` dentro del documento del código | `firestore_service.dart` (`_vinculosCollection`) |
+
+No existe una colección `alertas`: la alerta de 5 días es el campo
+`tratamientos.ultimoAvisoSinTomas` y las tomas olvidadas viven en
+`registrosToma` con estado `olvidó`. `usuarios` y `medicos` son del doctor, no
+del paciente, y no se tocan.
+
+Orden exacto:
+
+1. Lee y guarda en memoria `dispositivoFcmToken` y `dispositivoVinculadoId`.
+2. Borrar `tratamientos` y `registrosToma` cuyo `pacienteId` coincida, en
+   lotes de **máximo 400 operaciones** (`partirEnLotes`).
+3. Borrar `vinculos/{codigoVinculacion}` si existe.
+4. Borrar `pacientes/{id}` **al final**, porque las reglas de los hijos
+   consultan `pacientes/{id}` para autorizar al cuidador.
+5. Solo si todo terminó con éxito y había dispositivo vinculado con token,
+   `PushService.notificarSincronizacionConToken` con el token guardado
+   (best-effort; un fallo no revierte ni hace fallar el borrado).
+
+Si falla un paso intermedio, el documento del paciente sigue existiendo y la
+operación se puede repetir: las consultas solo devuelven los hijos que aún
+quedan. En el teléfono del paciente, la desaparición del documento (o un
+`permission-denied`) dispara `LimpiezaPacienteService`: cancela notificaciones,
+limpia `LocalStore` y la vinculación recordada, cierra la sesión anónima y deja
+un mensaje para la pantalla de selección de rol.
+
+---
+
 ## Notificaciones locales
 
 Los canales se crean en `NotificacionesService._crearCanales`
@@ -635,7 +675,9 @@ Cuando el cuidador crea, edita, borra o finaliza un tratamiento, la app envía
 un push de **solo datos** al teléfono del paciente:
 
 - Enviador: `PushService.notificarSincronizacionAlPaciente`
-  (`push_service.dart`), con `tipo: sync` y el `pacienteId`. **No** lleva nombre
+  (`push_service.dart`), con `tipo: sync` y el `pacienteId`. También existe
+  `notificarSincronizacionConToken`, usada tras borrar un paciente con el token
+  guardado en memoria. **No** lleva nombre
   del medicamento, dosis ni horarios; el paciente relee todo de Firestore. La
   prioridad Android es `high` y el TTL es de 3600 s.
 - Agrupación: `SincronizacionPacienteService.programarEnvio` acumula cambios

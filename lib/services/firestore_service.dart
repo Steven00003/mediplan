@@ -9,10 +9,13 @@ import '../models/medico.dart';
 import '../models/paciente.dart';
 import '../models/registro_toma.dart';
 import '../models/tratamiento.dart';
+import '../utils/eliminacion_paciente.dart';
 import '../utils/estado_codigo_vinculacion.dart';
 import '../utils/historial_tomas.dart';
 import '../utils/id_ranura.dart';
+import '../utils/lotes.dart';
 import '../utils/registros_toma.dart';
+import 'push_service.dart';
 
 /// El código existe, pero el paciente ya está vinculado a otro UID.
 ///
@@ -258,6 +261,99 @@ class FirestoreService {
     await _pacientesCollection().doc(pacienteId).update({
       'dispositivoFcmToken': FieldValue.delete(),
     });
+  }
+
+  /// Máximo de operaciones por batch al borrar los datos hijos del paciente.
+  /// Firestore permite 500; 400 deja margen para operaciones auxiliares.
+  static const int maxOperacionesLoteBorrado = 400;
+
+  /// Elimina un paciente y todos sus datos.
+  ///
+  /// Orden deliberado:
+  ///  1. Avisa al celular del paciente (best-effort).
+  ///  2. Borra tratamientos y registros de toma por `pacienteId`, en lotes.
+  ///  3. Borra el índice `vinculos/{codigo}`.
+  ///  4. Borra el documento del paciente **al final**: las reglas de los hijos
+  ///     consultan `pacientes/{id}` para autorizar al cuidador.
+  ///
+  /// Si falla a mitad, el documento del paciente sigue existiendo y la llamada
+  /// se puede repetir: las consultas solo devuelven lo que aún queda.
+  Future<void> eliminarPaciente(String pacienteId) async {
+    final paciente = await getPaciente(pacienteId);
+    if (paciente == null) return;
+
+    // Se guarda en memoria antes de borrar: el token y el vínculo ya no serán
+    // legibles cuando el documento del paciente desaparezca.
+    final token = (paciente.dispositivoFcmToken ?? '').trim();
+    final dispositivoVinculadoId = (paciente.dispositivoVinculadoId ?? '')
+        .trim();
+    final vinculado = dispositivoVinculadoId.isNotEmpty;
+    final codigo = paciente.codigoVinculacion.trim().toUpperCase();
+
+    final pasos = ordenEliminacionPaciente(
+      tieneVinculo: codigo.isNotEmpty,
+      notificarPaciente: vinculado && token.isNotEmpty,
+    );
+
+    for (final paso in pasos) {
+      switch (paso) {
+        case PasoEliminacionPaciente.tratamientos:
+          await _eliminarDocumentosPorPaciente('tratamientos', pacienteId);
+        case PasoEliminacionPaciente.registrosToma:
+          await _eliminarDocumentosPorPaciente('registrosToma', pacienteId);
+        case PasoEliminacionPaciente.vinculo:
+          final vinculo = _vinculosCollection().doc(codigo);
+          // Se lee antes de borrar: si el reintento ya lo había eliminado, un
+          // `delete` directo haría que las reglas evalúen `resource == null`.
+          final snap = await vinculo.get();
+          // El mismo código pudo reutilizarse para otro paciente; no se debe
+          // borrar un vínculo ajeno.
+          final apuntaAestePaciente =
+              snap.exists && snap.data()?['pacienteId'] == pacienteId;
+          if (apuntaAestePaciente) {
+            try {
+              await vinculo.delete();
+            } on FirebaseException catch (e) {
+              if (e.code == 'not-found') {
+                // Otra sesión lo borró entre la lectura y el delete.
+              } else if (e.code == 'permission-denied') {
+                final despues = await vinculo.get();
+                if (despues.exists) rethrow;
+              } else {
+                rethrow;
+              }
+            }
+          }
+        case PasoEliminacionPaciente.paciente:
+          await _pacientesCollection().doc(pacienteId).delete();
+        case PasoEliminacionPaciente.notificarPaciente:
+          // Solo después del borrado exitoso. Un fallo del envío no debe
+          // revertir ni hacer fallar la eliminación.
+          unawaited(
+            PushService().notificarSincronizacionConToken(
+              pacienteId: pacienteId,
+              token: token,
+            ),
+          );
+      }
+    }
+  }
+
+  Future<void> _eliminarDocumentosPorPaciente(
+    String coleccion,
+    String pacienteId,
+  ) async {
+    final snap = await _db
+        .collection(coleccion)
+        .where('pacienteId', isEqualTo: pacienteId)
+        .get();
+    for (final lote in partirEnLotes(snap.docs, maxOperacionesLoteBorrado)) {
+      final batch = _db.batch();
+      for (final doc in lote) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    }
   }
 
   // ---------------------------------------------------------------------

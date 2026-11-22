@@ -19,6 +19,7 @@ import '../../widgets/confirmar_salida_app.dart';
 import '../../widgets/estados.dart';
 import '../../widgets/lista_pacientes.dart';
 import '../../widgets/menu_ayuda.dart';
+import '../../widgets/snackbars.dart';
 import 'detalle_paciente_screen.dart';
 import 'mi_perfil_medico_screen.dart';
 import 'nuevo_paciente_screen.dart';
@@ -312,13 +313,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         }
                         return ListaPacientes(
                           pacientes: pacientes,
-                          onTap: (p) {
-                            Navigator.of(context).push(
-                              AppPageRoute(
-                                builder: (_) =>
-                                    DetallePacienteScreen(pacienteId: p.id),
-                              ),
-                            );
+                          onTap: (p) async {
+                            final eliminado = await Navigator.of(context)
+                                .push<bool>(
+                                  AppPageRoute(
+                                    builder: (_) =>
+                                        DetallePacienteScreen(pacienteId: p.id),
+                                  ),
+                                );
+                            if (eliminado == true && context.mounted) {
+                              mostrarSnackExito(context, 'Paciente eliminado.');
+                            }
                           },
                           footer: _ActividadReciente(
                             pacienteIds: _pacienteIds,

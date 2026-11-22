@@ -9,12 +9,14 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../constants.dart';
 import '../models/paciente.dart';
 import '../models/tratamiento.dart';
 import '../utils/errores_amigables.dart';
 import '../utils/sincronizacion_paciente.dart';
 import 'estado_dispositivo_service.dart';
 import 'firestore_service.dart';
+import 'limpieza_paciente_service.dart';
 import 'local_store.dart';
 import 'notificaciones_service.dart';
 import 'push_service.dart';
@@ -131,7 +133,13 @@ class SincronizacionPacienteService {
 
     try {
       final paciente = await _leerPaciente(pacienteIdLocal);
-      if (paciente == null) return false;
+      if (paciente == null) {
+        await _olvidarPaciente(
+          pacienteIdLocal,
+          prepararNotificaciones: prepararNotificaciones,
+        );
+        return false;
+      }
 
       // La comprobación definitiva: el documento del servidor debe seguir
       // apuntando al mismo UID anónimo. El id del mensaje solo sirve para
@@ -160,8 +168,34 @@ class SincronizacionPacienteService {
       await LocalStore.limpiarUltimoErrorSincronizacion();
       return true;
     } catch (e) {
+      // El documento existe pero este teléfono ya no puede leerlo: es una señal
+      // definitiva de que el médico eliminó el perfil (o lo desvinculó).
+      if (_esPermisoDenegado(e)) {
+        await _olvidarPaciente(
+          pacienteIdLocal,
+          prepararNotificaciones: prepararNotificaciones,
+        );
+        return false;
+      }
       await _registrarError(e);
       return false;
+    }
+  }
+
+  Future<void> _olvidarPaciente(
+    String pacienteId, {
+    required bool prepararNotificaciones,
+  }) async {
+    try {
+      if (prepararNotificaciones) {
+        await _notif.prepararParaSegundoPlano();
+      }
+      await LimpiezaPacienteService().olvidarPaciente(
+        pacienteId: pacienteId,
+        mensajeSeleccionRol: mensajePerfilPacienteEliminado,
+      );
+    } catch (e) {
+      await _registrarError(e);
     }
   }
 

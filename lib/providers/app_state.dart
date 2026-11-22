@@ -5,10 +5,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 
+import '../constants.dart';
 import '../models/paciente.dart';
 import '../models/tratamiento.dart';
 import '../services/estado_dispositivo_service.dart';
 import '../services/firestore_service.dart';
+import '../services/limpieza_paciente_service.dart';
 import '../services/local_store.dart';
 import '../services/omitidas_service.dart';
 import '../services/notificaciones_service.dart';
@@ -109,6 +111,28 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       // Reintenta publicar el token del paciente si el primer intento falló
       // sin red o si el documento se regeneró mientras la app estaba fuera.
       unawaited(PushService().sincronizarTokenPaciente());
+      // El isolate de FCM también puede limpiar este teléfono cuando el médico
+      // borra al paciente. Al volver del fondo sincronizamos esa limpieza.
+      unawaited(_verificarPacienteLocalSigueActivo());
+    }
+  }
+
+  /// Si el isolate de FCM borró la vinculación local mientras la app estaba en
+  /// segundo plano, la memoria de `AppState` todavía tendría al paciente. Aquí
+  /// se alinea con lo que quedó en disco y se vuelve a la selección de rol.
+  Future<void> _verificarPacienteLocalSigueActivo() async {
+    if (_pacienteVinculado == null) return;
+    try {
+      final local = await LocalStore.getPacienteVinculadoId();
+      final usuario = FirebaseAuth.instance.currentUser;
+      if ((local == null || local.isEmpty) || usuario == null) {
+        await _limpiarPacienteLocal(
+          borrarRecordada: true,
+          cerrarSesionAnonima: usuario?.isAnonymous ?? false,
+        );
+      }
+    } catch (_) {
+      // Un fallo de almacenamiento no debe tumbar la reanudación.
     }
   }
 
@@ -296,7 +320,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       // pudo desvincular el dispositivo y no queremos seguir mostrando datos
       // viejos. Solo los errores de red caen al fallback de caché.
       if (_esErrorDefinitivo(e)) {
-        await desvincularPaciente();
+        await desvincularPaciente(mensaje: mensajePerfilPacienteEliminado);
         return false;
       }
       try {
@@ -319,8 +343,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     if (paciente == null) {
-      // El perfil ya no existe en el servidor: desvinculamos.
-      await desvincularPaciente();
+      // El perfil ya no existe en el servidor (el médico lo eliminó).
+      await desvincularPaciente(mensaje: mensajePerfilPacienteEliminado);
       return false;
     }
 
@@ -381,8 +405,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           (snap) {
             if (snap.metadata.isFromCache) return; // solo dato del servidor
             final uid = FirebaseAuth.instance.currentUser?.uid;
+            if (!snap.exists) {
+              unawaited(
+                desvincularPaciente(mensaje: mensajePerfilPacienteEliminado),
+              );
+              return;
+            }
             final desvinculado =
-                !snap.exists ||
                 uid == null ||
                 (snap.data()?['dispositivoVinculadoId'] as String?) != uid;
             if (desvinculado) {
@@ -391,7 +420,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           },
           onError: (Object e) {
             if (_esErrorDefinitivo(e)) {
-              unawaited(desvincularPaciente());
+              unawaited(
+                desvincularPaciente(mensaje: mensajePerfilPacienteEliminado),
+              );
             }
             // Errores de red/unavailable: se ignoran, el paciente sigue.
           },
@@ -609,27 +640,17 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _limpiarPacienteLocal({
     required bool borrarRecordada,
     required bool cerrarSesionAnonima,
+    String? mensaje,
   }) async {
     final pacienteId = _pacienteVinculado?.id;
     await _pacienteSub?.cancel();
     _pacienteSub = null;
-    // Se lanza antes de limpiar el flag local para que el UID todavía sea el
-    // dispositivo vinculado. No se espera: un Firestore lento no debe retrasar
-    // la salida ni el cierre de sesión del paciente.
-    unawaited(PushService().cerrarSesionPaciente(pacienteId: pacienteId));
-    // Se cancelan antes de borrar el flag local: `cancelarTodas` exige que este
-    // teléfono siga siendo una sesión de paciente activa.
-    await _notif.cancelarTodas();
-    await LocalStore.limpiarPacienteVinculado();
-    if (borrarRecordada) {
-      await LocalStore.limpiarUltimaVinculacion();
-    }
-    if (cerrarSesionAnonima) {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null && user.isAnonymous) {
-        await FirebaseAuth.instance.signOut();
-      }
-    }
+    await LimpiezaPacienteService().olvidarPaciente(
+      pacienteId: pacienteId,
+      borrarRecordada: borrarRecordada,
+      cerrarSesionAnonima: cerrarSesionAnonima,
+      mensajeSeleccionRol: mensaje,
+    );
     _pacienteVinculado = null;
     _alarmaAbierta = false;
     _pararTimerOmitidas();
@@ -660,10 +681,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Desvinculación definitiva (doc borrado, UID distinto o permiso denegado):
   /// borra también la vinculación recordada, como antes, para que no se ofrezca
   /// un reingreso que el servidor ya no reconoce.
-  Future<void> desvincularPaciente() async {
+  Future<void> desvincularPaciente({String? mensaje}) async {
     await _limpiarPacienteLocal(
       borrarRecordada: true,
       cerrarSesionAnonima: true,
+      mensaje: mensaje,
     );
   }
 }

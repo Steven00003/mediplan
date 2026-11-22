@@ -35,6 +35,17 @@ class _SeleccionRolScreenState extends State<SeleccionRolScreen> {
   void initState() {
     super.initState();
     _cargarRecordada();
+    _mostrarMensajePendiente();
+  }
+
+  /// Un mensaje guardado por la limpieza del teléfono (por ejemplo, cuando el
+  /// médico elimina al paciente) se muestra una sola vez al volver aquí.
+  Future<void> _mostrarMensajePendiente() async {
+    final mensaje = await LocalStore.tomarMensajeSeleccionRol();
+    if (mensaje == null || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _mostrar(mensaje);
+    });
   }
 
   Future<void> _cargarRecordada() async {

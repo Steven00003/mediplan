@@ -21,11 +21,13 @@ import '../../utils/etiqueta_toma.dart';
 import '../../utils/estadisticas.dart';
 import '../../utils/registros_toma.dart';
 import '../../utils/reporte_estado_dispositivo.dart';
+import '../../utils/resumen_vinculacion.dart';
 import '../../utils/telefono_emergencia.dart';
 import '../../widgets/avatar_paciente.dart';
 import '../../widgets/banner_sin_conexion.dart';
 
 import '../../widgets/dialogo_accion_delicada.dart';
+import '../../widgets/dialogo_eliminar_paciente.dart';
 import '../../widgets/estados.dart';
 import '../../widgets/snackbars.dart';
 import '../../widgets/tarjeta_medicamento.dart';
@@ -101,6 +103,90 @@ class _DetalleBodyState extends State<_DetalleBody> {
   /// Arranca en "Horario" (índice 1): es la pestaña de trabajo del cuidador.
   int _pestana = 1;
 
+  bool _eliminando = false;
+
+  Future<void> _confirmarEliminarPaciente() async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (_) =>
+          DialogoEliminarPaciente(nombrePaciente: widget.paciente.nombre),
+    );
+    if (confirmado != true || !mounted) return;
+    await _ejecutarEliminacion();
+  }
+
+  Future<void> _ejecutarEliminacion() async {
+    if (_eliminando) return;
+    setState(() => _eliminando = true);
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  'Eliminando a ${widget.paciente.nombre}...',
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      await FirestoreService().eliminarPaciente(widget.paciente.id);
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      HapticFeedback.mediumImpact();
+      mostrarSnackExito(context, 'Paciente eliminado.');
+      // El detalle se abrió desde la lista: al volver a la raíz se ve el
+      // dashboard actualizado por su propio stream.
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      setState(() => _eliminando = false);
+
+      final reintentar = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.error_outline, color: AppColors.error),
+          title: const Text('No se pudo eliminar'),
+          content: Text(
+            '${mensajeErrorAmigable(e, contexto: 'Error eliminando paciente')} '
+            'Puedes reintentar; los datos que ya se borraron no se duplican.',
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cerrar'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Reintentar'),
+            ),
+          ],
+        ),
+      );
+      if (reintentar == true && mounted) {
+        await _ejecutarEliminacion();
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final paciente = widget.paciente;
@@ -108,89 +194,123 @@ class _DetalleBodyState extends State<_DetalleBody> {
         paciente.dispositivoVinculadoId != null &&
         paciente.dispositivoVinculadoId!.isNotEmpty;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(paciente.nombre),
-        actions: [
-          IconButton(
-            tooltip: 'Editar',
-            onPressed: () {
-              Navigator.of(context).push(
-                AppPageRoute(
-                  builder: (_) => EditarPacienteScreen(paciente: paciente),
+    return PopScope(
+      canPop: !_eliminando,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(paciente.nombre),
+          actions: [
+            IconButton(
+              tooltip: 'Editar',
+              onPressed: _eliminando
+                  ? null
+                  : () {
+                      Navigator.of(context).push(
+                        AppPageRoute(
+                          builder: (_) =>
+                              EditarPacienteScreen(paciente: paciente),
+                        ),
+                      );
+                    },
+              icon: const Icon(Icons.edit),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Más opciones',
+              enabled: !_eliminando,
+              onSelected: (valor) {
+                if (valor == 'eliminar') {
+                  _confirmarEliminarPaciente();
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem<String>(
+                  value: 'eliminar',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_forever, color: AppColors.error),
+                      SizedBox(width: 8),
+                      Text(
+                        'Eliminar paciente',
+                        style: TextStyle(color: AppColors.error),
+                      ),
+                    ],
+                  ),
                 ),
-              );
-            },
-            icon: const Icon(Icons.edit),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.of(context).push(
-            AppPageRoute(
-              builder: (_) => EditarTratamientoScreen(
-                pacienteId: paciente.id,
-                esNuevo: true,
+              ],
+            ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _eliminando
+              ? null
+              : () {
+                  Navigator.of(context).push(
+                    AppPageRoute(
+                      builder: (_) => EditarTratamientoScreen(
+                        pacienteId: paciente.id,
+                        esNuevo: true,
+                      ),
+                    ),
+                  );
+                },
+          icon: const Icon(Icons.add),
+          label: const Text('Nuevo medicamento'),
+        ),
+        body: Column(
+          children: [
+            const BannerSinConexion(
+              mensaje:
+                  'Sin conexión. Puede que estés viendo datos desactualizados.',
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.sm,
+                AppSpacing.sm,
+                AppSpacing.sm,
+                AppSpacing.xs,
+              ),
+              child: Column(
+                children: [
+                  _FichaPaciente(paciente: paciente),
+                  const SizedBox(height: AppSpacing.xs),
+                  SeccionVinculacionDispositivo(
+                    paciente: paciente,
+                    vinculado: vinculado,
+                  ),
+                ],
               ),
             ),
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Nuevo medicamento'),
-      ),
-      body: Column(
-        children: [
-          const BannerSinConexion(
-            mensaje:
-                'Sin conexión. Puede que estés viendo datos desactualizados.',
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.sm,
-              AppSpacing.sm,
-              AppSpacing.sm,
-              AppSpacing.xs,
-            ),
-            child: Column(
-              children: [
-                _FichaPaciente(paciente: paciente),
-                const SizedBox(height: AppSpacing.sm),
-                CardCodigoVinculacion(paciente: paciente, vinculado: vinculado),
-                if (vinculado) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  _CardCelularPaciente(estado: paciente.estadoDispositivo),
+            const Divider(height: 1),
+            Expanded(
+              child: IndexedStack(
+                index: _pestana,
+                children: [
+                  _PestanaHistorial(paciente: paciente),
+                  _PestanaHorario(paciente: paciente),
+                  _PestanaEstadisticas(paciente: paciente),
                 ],
-              ],
+              ),
             ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: IndexedStack(
-              index: _pestana,
-              children: [
-                _PestanaHistorial(paciente: paciente),
-                _PestanaHorario(paciente: paciente),
-                _PestanaEstadisticas(paciente: paciente),
-              ],
+          ],
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _pestana,
+          onTap: (i) => setState(() => _pestana = i),
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.medication),
+              label: 'Historial',
             ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _pestana,
-        onTap: (i) => setState(() => _pestana = i),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.medication),
-            label: 'Historial',
-          ),
-          BottomNavigationBarItem(icon: Icon(Icons.schedule), label: 'Horario'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart),
-            label: 'Estadísticas',
-          ),
-        ],
+            BottomNavigationBarItem(
+              icon: Icon(Icons.schedule),
+              label: 'Horario',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.bar_chart),
+              label: 'Estadísticas',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -992,17 +1112,25 @@ class _FichaPaciente extends StatelessWidget {
   }
 }
 
-class CardCodigoVinculacion extends StatefulWidget {
+class SeccionVinculacionDispositivo extends StatefulWidget {
   final Paciente paciente;
   final bool vinculado;
-  const CardCodigoVinculacion({super.key, required this.paciente, required this.vinculado});
+
+  const SeccionVinculacionDispositivo({
+    super.key,
+    required this.paciente,
+    required this.vinculado,
+  });
 
   @override
-  State<CardCodigoVinculacion> createState() => CardCodigoVinculacionState();
+  State<SeccionVinculacionDispositivo> createState() =>
+      _SeccionVinculacionDispositivoState();
 }
 
-class CardCodigoVinculacionState extends State<CardCodigoVinculacion> {
+class _SeccionVinculacionDispositivoState
+    extends State<SeccionVinculacionDispositivo> {
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _vinculo;
+  bool _expandido = false;
   bool _generando = false;
 
   String get _codigo => widget.paciente.codigoVinculacion.trim().toUpperCase();
@@ -1014,7 +1142,7 @@ class CardCodigoVinculacionState extends State<CardCodigoVinculacion> {
   }
 
   @override
-  void didUpdateWidget(covariant CardCodigoVinculacion oldWidget) {
+  void didUpdateWidget(covariant SeccionVinculacionDispositivo oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.paciente.codigoVinculacion !=
         widget.paciente.codigoVinculacion) {
@@ -1048,7 +1176,7 @@ class CardCodigoVinculacionState extends State<CardCodigoVinculacion> {
   }
 
   Future<void> _generar() async {
-    if (_generando) return;
+    if (_generando || widget.vinculado) return;
     final ok = await mostrarDialogoAccionDelicada(
       context,
       titulo: 'Generar código nuevo',
@@ -1082,136 +1210,210 @@ class CardCodigoVinculacionState extends State<CardCodigoVinculacion> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.vinculado) {
-      // Estado compacto y colapsado por defecto: el código y el vencimiento
-      // dejan de ocupar espacio cuando el dispositivo ya está vinculado.
-      return Card(
-        color: AppColors.primary,
-        child: ExpansionTile(
-          leading: const Icon(Icons.link, color: AppColors.accent),
-          title: const Text(
-            'Dispositivo vinculado',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: _BtnDesvincular(paciente: widget.paciente),
-            ),
-          ],
-        ),
-      );
-    }
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _vinculo,
+      builder: (context, snap) {
+        final expiraEn = _fechaDeExpiracion(snap.data?.data()?['expiraEn']);
+        final ahora = DateTime.now();
+        final resumen = resumenVinculacion(
+          vinculado: widget.vinculado,
+          expiraCodigo: expiraEn,
+          ahora: ahora,
+          estadoDispositivo: widget.paciente.estadoDispositivo,
+        );
 
-    final codigo = _codigo;
-    return Card(
-      color: AppColors.primary,
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.sm),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.link_off, color: AppColors.warning),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Código de vinculación',
-                    style: AppType.label.copyWith(color: AppColors.onGreen),
-                  ),
-                ),
-              ],
+        return Card(
+          color: AppColors.primary,
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.sm,
+              AppSpacing.xs,
+              AppSpacing.sm,
+              AppSpacing.sm,
             ),
-            const SizedBox(height: AppSpacing.xs),
-            Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    codigo.isEmpty ? 'Sin código' : codigo,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 28,
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.onGreen,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Icon(
+                      widget.vinculado ? Icons.link : Icons.link_off,
+                      color: widget.vinculado
+                          ? AppColors.accent
+                          : AppColors.warning,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Vinculación y dispositivo',
+                            style: AppType.label.copyWith(
+                              color: AppColors.onGreen,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            resumen.texto,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppType.body.copyWith(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (resumen.advertencia)
+                      Semantics(
+                        label:
+                            'Advertencia: el celular del paciente puede no '
+                            'tener las alarmas activas',
+                        child: const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: Icon(
+                            Icons.warning_amber_rounded,
+                            color: AppColors.warning,
+                            size: AppSizes.iconSmall,
+                          ),
+                        ),
+                      ),
+                    TextButton.icon(
+                      onPressed: () => setState(() => _expandido = !_expandido),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.onGreen,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: const Size(0, 40),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        textStyle: AppType.label,
+                      ),
+                      icon: Icon(
+                        _expandido
+                            ? Icons.keyboard_arrow_up
+                            : Icons.keyboard_arrow_down,
+                        size: AppSizes.iconSmall,
+                      ),
+                      label: Text(_expandido ? 'Ocultar' : 'Mostrar'),
+                    ),
+                  ],
+                ),
+                if (_expandido) ...[
+                  const Divider(height: 20),
+                  Text(
+                    widget.vinculado
+                        ? 'Estado: dispositivo vinculado'
+                        : 'Estado: sin vincular',
+                    style: AppType.body.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
                     ),
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Copiar código',
-                  onPressed: codigo.isEmpty ? null : _copiar,
-                  icon: const Icon(Icons.copy),
-                  color: AppColors.onGreen,
-                ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _codigo.isEmpty ? 'Sin código' : _codigo,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            letterSpacing: 1.5,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.onGreen,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Copiar código',
+                        onPressed: _codigo.isEmpty ? null : _copiar,
+                        icon: const Icon(Icons.copy),
+                        color: AppColors.onGreen,
+                      ),
+                    ],
+                  ),
+                  _vencimiento(snap, ahora),
+                  const SizedBox(height: AppSpacing.xs),
+                  if (!widget.vinculado)
+                    TextButton.icon(
+                      onPressed: _generando ? null : _generar,
+                      icon: const Icon(Icons.refresh, size: AppSizes.iconSmall),
+                      label: Text(
+                        _generando ? 'Generando...' : 'Generar código nuevo',
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.onGreen,
+                      ),
+                    ),
+                  if (!widget.vinculado)
+                    const Text(
+                      'Compártelo con el paciente para que se vincule.',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  if (widget.vinculado) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    _CardCelularPaciente(
+                      estado: widget.paciente.estadoDispositivo,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    _BtnDesvincular(paciente: widget.paciente),
+                  ],
+                ],
               ],
             ),
-            _vencimiento(),
-            const SizedBox(height: AppSpacing.xs),
-            TextButton.icon(
-              onPressed: _generando ? null : _generar,
-              icon: const Icon(Icons.refresh, size: AppSizes.iconSmall),
-              label: Text(
-                _generando ? 'Generando...' : 'Generar código nuevo',
-              ),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.onGreen,
-              ),
-            ),
-            const Text(
-              'Compártelo con el paciente para que se vincule.',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _vencimiento() {
+  Widget _vencimiento(
+    AsyncSnapshot<DocumentSnapshot<Map<String, dynamic>>> snap,
+    DateTime ahora,
+  ) {
     if (_vinculo == null) {
       return const Text(
         'Sin vencimiento',
         style: TextStyle(color: AppColors.textSecondary),
       );
     }
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _vinculo,
-      builder: (context, snap) {
-        if (snap.hasError) {
-          return const Text(
-            'No se pudo consultar el vencimiento',
-            style: TextStyle(color: AppColors.error),
-          );
-        }
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Text(
-            'Consultando vencimiento...',
-            style: TextStyle(color: AppColors.textSecondary),
-          );
-        }
+    if (snap.hasError) {
+      return const Text(
+        'No se pudo consultar el vencimiento',
+        style: TextStyle(color: AppColors.error),
+      );
+    }
+    if (snap.connectionState == ConnectionState.waiting) {
+      return const Text(
+        'Consultando vencimiento...',
+        style: TextStyle(color: AppColors.textSecondary),
+      );
+    }
 
-        final expiraEn = _fechaDeExpiracion(snap.data?.data()?['expiraEn']);
-        final ahora = DateTime.now();
-        final estado = estadoDelCodigo(expiraEn, ahora);
-        final texto = textoVencimientoCodigo(expiraEn, ahora);
-        return Text(
-          texto,
-          style: TextStyle(
-            color: estado == EstadoCodigoVinculacion.vencido
-                ? AppColors.error
-                : AppColors.textSecondary,
-            fontWeight: estado == EstadoCodigoVinculacion.vencido
-                ? FontWeight.bold
-                : null,
-          ),
-        );
-      },
+    final expiraEn = _fechaDeExpiracion(snap.data?.data()?['expiraEn']);
+    final estado = estadoDelCodigo(expiraEn, ahora);
+    final texto = textoVencimientoCodigo(expiraEn, ahora);
+    return Text(
+      texto,
+      style: TextStyle(
+        color: estado == EstadoCodigoVinculacion.vencido
+            ? AppColors.error
+            : AppColors.textSecondary,
+        fontWeight: estado == EstadoCodigoVinculacion.vencido
+            ? FontWeight.bold
+            : null,
+      ),
     );
   }
 }

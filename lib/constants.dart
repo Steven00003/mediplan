@@ -16,3 +16,8 @@ const String appVersion = '1.0.0+1';
 /// Pasado este tiempo el paciente debe pedir al cuidador que genere uno nuevo.
 /// Los vínculos antiguos sin `expiraEn` se siguen tratando como vigentes.
 const Duration duracionCodigoVinculacion = Duration(hours: 72);
+
+/// Mensaje que ve el paciente cuando su perfil ya no existe en el servidor
+/// (el médico lo eliminó) o ya no tiene permiso para leerlo.
+const String mensajePerfilPacienteEliminado =
+    'Tu médico ya no tiene este perfil activo';

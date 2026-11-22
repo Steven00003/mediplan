@@ -42,6 +42,7 @@ class LocalStore {
   static const _kAvisoPermisosCelularMostrado =
       'aviso_permisos_celular_mostrado';
   static const _kUltimoErrorSincronizacion = 'ultimo_error_sincronizacion';
+  static const _kMensajeSeleccionRol = 'mensaje_seleccion_rol';
 
   /// Genera (la primera vez) o recupera el identificador estable de este
   /// dispositivo. Se usa como `dispositivoVinculadoId` en Firestore.
@@ -215,6 +216,22 @@ class LocalStore {
   static Future<void> limpiarUltimoErrorSincronizacion() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kUltimoErrorSincronizacion);
+  }
+
+  /// Mensaje de una sola vez para mostrar al volver a la selección de rol.
+  static Future<void> guardarMensajeSeleccionRol(String mensaje) async {
+    final limpio = mensaje.trim();
+    if (limpio.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kMensajeSeleccionRol, limpio);
+  }
+
+  /// Lee y borra el mensaje pendiente, para que no se repita en cada arranque.
+  static Future<String?> tomarMensajeSeleccionRol() async {
+    final prefs = await SharedPreferences.getInstance();
+    final texto = prefs.getString(_kMensajeSeleccionRol)?.trim() ?? '';
+    await prefs.remove(_kMensajeSeleccionRol);
+    return texto.isEmpty ? null : texto;
   }
 
   static String _generarId() {

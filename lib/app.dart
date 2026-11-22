@@ -523,7 +523,10 @@ class HomeRouter extends StatelessWidget {
           return const DashboardScreen();
         }
         // Paciente ya vinculado (sesión anónima) → va directo a sus medicamentos.
-        if (appState.esPaciente) {
+        // Si la sesión anónima ya se cerró (p. ej. el médico eliminó el perfil),
+        // no se muestra la pantalla del paciente aunque AppState aún conserve
+        // el objeto en memoria hasta su limpieza.
+        if (appState.esPaciente && usuario != null) {
           return const MedicamentosProximosScreen();
         }
         return const SeleccionRolScreen();
