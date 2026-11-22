@@ -64,6 +64,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
     unawaited(_notif.migrarAlarmasDeCuidador());
     unawaited(_push.registrarCuidador());
     _iniciarSuscripcion();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _pedirNotificacionesSiFaltan(),
+    );
+  }
+
+  Future<void> _pedirNotificacionesSiFaltan() async {
+    if (!mounted) return;
+    final notif = NotificacionesService();
+    final habilitadas = await notif.notificacionesHabilitadas();
+    if (habilitadas != false || !mounted) return;
+    final pedir = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Notificaciones de alertas'),
+        content: const Text(
+          'MediPlan te avisa si un paciente lleva 5 dias sin tomas registradas. '
+          'Activa las notificaciones para no perder esos avisos.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Ahora no'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Permitir'),
+          ),
+        ],
+      ),
+    );
+    if (pedir == true && mounted) {
+      await notif.pedirPermiso();
+    }
   }
 
   @override

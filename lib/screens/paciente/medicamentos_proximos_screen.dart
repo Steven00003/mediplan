@@ -29,6 +29,7 @@ import '../../widgets/dialogo_accion_delicada.dart';
 import '../../widgets/estados.dart';
 import '../../widgets/menu_ayuda.dart';
 import 'alarma_screen.dart';
+import 'asistente_permisos_paciente_screen.dart';
 import 'comprobar_celular_screen.dart';
 import 'detalle_medicamento_paciente_screen.dart';
 import 'diagnostico_alarma_screen.dart';
@@ -46,11 +47,12 @@ class MedicamentosProximosScreen extends StatefulWidget {
       _MedicamentosProximosScreenState();
 }
 
-class _MedicamentosProximosScreenState
-    extends State<MedicamentosProximosScreen> {
+class _MedicamentosProximosScreenState extends State<MedicamentosProximosScreen>
+    with WidgetsBindingObserver {
   final FirestoreService _fs = FirestoreService();
   Timer? _timer;
   bool _alarmaAbierta = false;
+  bool _permisosCriticosFaltan = false;
 
   /// Registros de hoy para pintar el estado de cada dosis. Se crea una vez por
   /// paciente para no volver a suscribirse en cada rebuild.
@@ -69,18 +71,50 @@ class _MedicamentosProximosScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!_alarmaAbierta) _revisarTomas();
     });
+    _comprobarPermisosCriticos();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _revisarTomas();
-      // Primero el aviso general: si hay permisos críticos pendientes, lleva a
-      // la pantalla de ayuda. Solo si no se mostró se conserva el diálogo
-      // específico de pantalla completa.
+      // Primero el aviso general: si hay permisos críticos pendientes, lleva al
+      // asistente. Solo si no se mostró se conserva el diálogo específico de
+      // pantalla completa.
       final mostroAviso = await _quizasAvisarPermisosCriticos();
       if (!mostroAviso) {
         await _quizasPedirPermisoPantallaCompleta();
       }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _comprobarPermisosCriticos();
+    }
+  }
+
+  Future<void> _comprobarPermisosCriticos() async {
+    final notif = NotificacionesService();
+    final sdk = await notif.androidSdkInt();
+    if (sdk == null) return;
+    final notificaciones = await notif.notificacionesHabilitadas();
+    final exactas = sdk >= 31
+        ? await notif.puedeProgramarAlarmasExactas()
+        : null;
+    final pantalla = sdk >= 34 ? await notif.puedeUsarPantallaCompleta() : null;
+    final energia = sdk >= 23 ? await notif.estadoEnergia() : null;
+    final bateria = energia?['ignoringBatteryOptimizations'] as bool?;
+    if (!mounted) return;
+    setState(() {
+      _permisosCriticosFaltan = faltanPermisosCriticos(
+        sdkInt: sdk,
+        notificaciones: notificaciones,
+        alarmasExactas: exactas,
+        pantallaCompleta: pantalla,
+        bateriaSinRestricciones: bateria,
+      );
     });
   }
 
@@ -100,6 +134,7 @@ class _MedicamentosProximosScreenState
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }
@@ -212,31 +247,16 @@ class _MedicamentosProximosScreenState
       return true;
     }
 
-    final revisar = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Revisa los permisos de tu celular'),
-        content: const Text(
-          'Para que las alarmas de tus medicamentos suenen a tiempo, revisa '
-          'las notificaciones, la batería y el inicio automático.\n\n'
-          'Te guiamos paso a paso según tu marca.',
+    final fabricante = await notif.fabricanteDispositivo();
+    if (!mounted) return true;
+    await Navigator.of(context).push(
+      AppPageRoute(
+        builder: (_) => AsistentePermisosPacienteScreen(
+          sdkInt: sdk,
+          fabricante: fabricante,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Ahora no'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Revisar'),
-          ),
-        ],
       ),
     );
-    if (revisar == true && mounted) {
-      await Navigator.of(context)
-          .push(AppPageRoute(builder: (_) => const ComprobarCelularScreen()));
-    }
     return true;
   }
 
@@ -471,6 +491,38 @@ class _MedicamentosProximosScreenState
         const BannerSinConexion(
           mensaje: 'Sin conexión. Tus alarmas siguen funcionando.',
         ),
+        if (_permisosCriticosFaltan)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.sm,
+              AppSpacing.xs,
+              AppSpacing.sm,
+              0,
+            ),
+            child: Card(
+              color: AppColors.warning.withValues(alpha: 0.12),
+              child: ListTile(
+                leading: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppColors.warning,
+                ),
+                title: const Text('Faltan permisos para tus alarmas'),
+                subtitle: const Text(
+                  'Revisa notificaciones, bateria e inicio automatico.',
+                ),
+                trailing: TextButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      AppPageRoute(
+                        builder: (_) => const ComprobarCelularScreen(),
+                      ),
+                    );
+                  },
+                  child: const Text('Comprobar'),
+                ),
+              ),
+            ),
+          ),
         if (_medicoFuture != null) _TarjetaMiMedico(futuro: _medicoFuture!),
         _AccesoComprobarCelular(
           onAbrir: _abrirComprobarCelular,
