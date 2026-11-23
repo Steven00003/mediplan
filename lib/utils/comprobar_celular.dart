@@ -6,6 +6,8 @@
 /// marca) sin tocar Firestore.
 library;
 
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
 /// Puntos de la lista de verificación que puede tener la pantalla.
 enum PuntoCelular {
   notificaciones,
@@ -128,6 +130,9 @@ const GuiaFabricante _guiaHuawei = GuiaFabricante(
     'Abre Ajustes > Batería > Inicio de aplicaciones y revisa MediPlan.',
     'En Ajustes > Aplicaciones > MediPlan > Batería, elige Sin restricciones.',
     'Activa Mostrar en pantalla de bloqueo y permite las notificaciones.',
+    'En algunos Huawei la alarma llega como notificación y debes tocarla para '
+        'abrirla. Activa el inicio manual y las ventanas emergentes para '
+        'mejorarlo.',
   ],
 );
 
@@ -273,6 +278,7 @@ class EstadoCelular {
   final bool? bateriaSinRestricciones;
   final List<AlarmaEnCelular> alarmas;
   final DateTime? ultimoRearme;
+  final int huerfanasCanceladasUltimoRearme;
   final String? ultimoErrorSincronizacion;
 
   const EstadoCelular({
@@ -285,6 +291,7 @@ class EstadoCelular {
     this.bateriaSinRestricciones,
     this.alarmas = const [],
     this.ultimoRearme,
+    this.huerfanasCanceladasUltimoRearme = 0,
     this.ultimoErrorSincronizacion,
   });
 
@@ -312,4 +319,45 @@ class AlarmaEnCelular {
     required this.hora,
     this.esPrueba = false,
   });
+}
+
+
+/// Indica si la fila del canal de alarmas tiene sentido en esa version de
+/// Android. Los canales existen desde Android 8 (API 26).
+bool mostrarFilaCanalAlarmas(int? sdkInt) {
+  return sdkInt != null && sdkInt >= 26;
+}
+
+/// Decide si el canal de alarmas esta en silencio o bloqueado.
+bool canalAlarmasEnProblema(
+  AndroidNotificationChannel? canal, {
+  required bool? notificacionesHabilitadas,
+}) {
+  if (notificacionesHabilitadas == false) return true;
+  if (canal == null) return true;
+  if (canal.importance.index < Importance.high.index) return true;
+  if (!canal.playSound) return true;
+  if (!canal.enableVibration) return true;
+  return false;
+}
+
+/// Frase en tuteo que explica el estado real del canal.
+String fraseCanalAlarmas(
+  AndroidNotificationChannel? canal, {
+  required bool? notificacionesHabilitadas,
+}) {
+  if (notificacionesHabilitadas == false) {
+    return 'Las notificaciones estan desactivadas para MediPlan. Activalas '
+        'para que la alarma suene.';
+  }
+  if (canal == null) {
+    return 'No se pudo leer el canal de alarmas. Revisa los ajustes.';
+  }
+  if (canal.importance.index < Importance.high.index ||
+      !canal.playSound ||
+      !canal.enableVibration) {
+    return 'El canal esta en silencio o bloqueado. Abrelo y ponlo en Alta, '
+        'con sonido y vibracion.';
+  }
+  return 'El canal esta listo: sonara y vibrara cuando toque.';
 }

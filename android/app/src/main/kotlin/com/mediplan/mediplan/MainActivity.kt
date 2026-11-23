@@ -1,12 +1,15 @@
 package com.mediplan.mediplan
 
 import android.app.AlarmManager
+import android.app.KeyguardManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
@@ -15,6 +18,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+
+    private var wakeLockAlarma: PowerManager.WakeLock? = null
 
     private companion object {
         const val CANAL_AJUSTES = "com.mediplan.mediplan/ajustes_escritura"
@@ -35,6 +40,8 @@ class MainActivity : FlutterActivity() {
         const val METODO_ABRIR_AJUSTES_ALARMAS_EXACTAS =
             "abrirAjustesAlarmasExactas"
         const val METODO_ABRIR_DETALLES_APP = "abrirDetallesApp"
+        const val METODO_ABRIR_AJUSTES_CANAL_ALARMAS = "abrirAjustesCanalAlarmas"
+        const val METODO_ABRIR_AJUSTES_CANAL = "abrirAjustesCanal"
 
         // Flags de ventana para que la alarma se vea sobre el bloqueo.
         const val CANAL_VENTANA_ALARMA = "com.mediplan.mediplan/ventana_alarma"
@@ -104,6 +111,16 @@ class MainActivity : FlutterActivity() {
                         abrirDetallesApp()
                         result.success(null)
                     }
+                    METODO_ABRIR_AJUSTES_CANAL_ALARMAS -> {
+                        abrirAjustesCanalAlarmas()
+                        result.success(null)
+                    }
+                    METODO_ABRIR_AJUSTES_CANAL -> {
+                        val canalId = call.argument<String>("canalId")
+                            ?: "alarmas_medicamentos_v2"
+                        abrirAjustesCanal(canalId)
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -143,11 +160,38 @@ class MainActivity : FlutterActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // En Android 9 (y en fabricantes que bloquean la pantalla completa) los
+        // flags anteriores no siempre encienden la pantalla. El wake lock con
+        // ACQUIRE_CAUSES_WAKEUP es la forma compatible de hacerlo. Se libera
+        // solo a los 20 segundos para no mantener la pantalla encendida más de
+        // lo necesario. No está garantizado en todas las marcas.
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLockAlarma?.release()
+        wakeLockAlarma = powerManager.newWakeLock(
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "MediPlan:Alarma",
+        ).apply {
+            setReferenceCounted(false)
+            acquire(20_000)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val keyguard = getSystemService(Context.KEYGUARD_SERVICE)
+                as KeyguardManager
+            keyguard.requestDismissKeyguard(this, null)
+        }
+        Handler(Looper.getMainLooper()).postDelayed({ liberarWakeLockAlarma() }, 20_000)
     }
 
     private fun esIntentoDeAlarma(intent: Intent?): Boolean {
         if (intent?.action != ACCION_SELECT_NOTIFICATION) return false
         return !intent.getStringExtra(EXTRA_PAYLOAD).isNullOrBlank()
+    }
+
+    private fun liberarWakeLockAlarma() {
+        wakeLockAlarma?.release()
+        wakeLockAlarma = null
     }
 
     private fun desactivarFlagsDeAlarma() {
@@ -287,5 +331,29 @@ class MainActivity : FlutterActivity() {
             Uri.parse("package:$packageName"),
         )
         startActivity(intent)
+    }
+
+    private fun abrirAjustesCanalAlarmas() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            abrirDetallesApp()
+            return
+        }
+        val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            putExtra(Settings.EXTRA_CHANNEL_ID, "alarmas_medicamentos_v2")
+        }
+        abrirAjustes(intent)
+    }
+
+    private fun abrirAjustesCanal(canalId: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            abrirDetallesApp()
+            return
+        }
+        val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            putExtra(Settings.EXTRA_CHANNEL_ID, canalId)
+        }
+        abrirAjustes(intent)
     }
 }

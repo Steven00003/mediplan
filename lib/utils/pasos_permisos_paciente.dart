@@ -5,6 +5,7 @@ enum PasoPermisoPaciente {
   notificaciones,
   alarmasExactas,
   pantallaCompleta,
+  canalAlarmas,
   bateria,
   inicioAutomatico,
 }
@@ -14,6 +15,7 @@ extension PasoPermisoPacienteTexto on PasoPermisoPaciente {
     PasoPermisoPaciente.notificaciones => 'Notificaciones',
     PasoPermisoPaciente.alarmasExactas => 'Alarmas exactas',
     PasoPermisoPaciente.pantallaCompleta => 'Pantalla completa',
+    PasoPermisoPaciente.canalAlarmas => 'Sonido de alarmas',
     PasoPermisoPaciente.bateria => 'Bateria',
     PasoPermisoPaciente.inicioAutomatico => 'Inicio automatico',
   };
@@ -25,6 +27,8 @@ extension PasoPermisoPacienteTexto on PasoPermisoPaciente {
       'Para que la alarma suene a la hora exacta que programaste.',
     PasoPermisoPaciente.pantallaCompleta =>
       'Para que la alarma se abra aunque el telefono este bloqueado.',
+    PasoPermisoPaciente.canalAlarmas =>
+      'Para que las alarmas suenen y vibren cuando toque.',
     PasoPermisoPaciente.bateria =>
       'Para que Android no retrase tus alarmas al ahorrar bateria.',
     PasoPermisoPaciente.inicioAutomatico =>
@@ -37,6 +41,7 @@ bool pasoAplica(PasoPermisoPaciente paso, int? sdkInt) {
     PasoPermisoPaciente.notificaciones => true,
     PasoPermisoPaciente.alarmasExactas => sdkInt != null && sdkInt >= 31,
     PasoPermisoPaciente.pantallaCompleta => sdkInt != null && sdkInt >= 34,
+    PasoPermisoPaciente.canalAlarmas => sdkInt != null && sdkInt >= 26,
     PasoPermisoPaciente.bateria => sdkInt != null && sdkInt >= 23,
     PasoPermisoPaciente.inicioAutomatico => true,
   };

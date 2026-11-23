@@ -1,12 +1,12 @@
 # AGENTS.md
 
-Flutter (Dart) + Firebase medication app. Two UX flows (caregiver/doctor in `lib/screens/doctor/`, patient in `lib/screens/paciente/`). 100% client + Firestore rules — no Cloud Functions, no Storage. Caregiver alerts use a client-sent FCM HTTP v1 push + local notifications (see Push section). `flutter analyze` clean; 292 tests pass.
+Flutter (Dart) + Firebase medication app. Two UX flows (caregiver/doctor in `lib/screens/doctor/`, patient in `lib/screens/paciente/`). 100% client + Firestore rules — no Cloud Functions, no Storage. Caregiver alerts use a client-sent FCM HTTP v1 push + local notifications (see Push section). `flutter analyze` clean; 301 tests pass.
 
 ## Commands (run from `mediplan/`)
 
 - `flutter pub get` — install deps
 - `flutter analyze` — correctness gate (~45s warm, ~150s typical; cold ~300s). Don't kill it.
-- `flutter test` — 35 files / 292 tests (~3 min). For a single file: `flutter test test/<file>.dart`. Use ASCII `--plain-name` substring for accented names (e.g. `flutter test --plain-name "formato de c"`). Run analyze/test **sequentially**: concurrent invocations contend for the Flutter tool lock and can hang widget tests (`did not complete`) or time out analyze.
+- `flutter test` — 35 files / 301 tests (~3 min). For a single file: `flutter test test/<file>.dart`. Use ASCII `--plain-name` substring for accented names (e.g. `flutter test --plain-name "formato de c"`). Run analyze/test **sequentially**: concurrent invocations contend for the Flutter tool lock and can hang widget tests (`did not complete`) or time out analyze.
 - `flutter build apk` — needs NDK `flutter.ndkVersion` (28.2.13676358 on 3.47.2). SDK/NDK/AGP/Kotlin/Gradle/Java follow Flutter defaults (see `android/app/build.gradle.kts`; release still signed with the debug key, core-library desugaring on for `flutter_local_notifications`).
 - `firebase deploy --only firestore:rules --project mediplan-35953` — no `.firebaserc`; must specify `--project`. **Nunca despliegues reglas ni índices sin avisar antes qué cambia.** `firestore.indexes.json` está commiteado con 4 compuestos, pero los índices de producción se gestionan desde la consola y `--only firestore:indexes` no se usa en este proyecto.
 - `dart run flutter_launcher_icons` / `dart run flutter_native_splash:create` — regenerate the native launcher icon / splash after editing `assets/icon/` (config in `pubspec.yaml`; not covered by `flutter analyze`/`flutter test`). `icon.png` is the badge used by the launcher/splash **and** by `AppLogo` in-app; `logo_app.png` is an older unused variant.
@@ -25,7 +25,7 @@ Toolchain: Flutter 3.47.2 / Dart 3.13.2 / firebase CLI 15.28.2 (pubspec pins `sd
 ## Estado actual
 
 - Fases 0–7 implementadas: auth y vinculación por `vinculos`, tratamientos con vigencia (`fechaInicio`/`duracionDias`), horarios por día, alarmas y avisos locales, reconciliación de tomas olvidadas, alerta de 5 días sin tomas por push FCM, y limpieza/documentación.
-- `flutter analyze` limpio y 292 tests pasan; el último `flutter build apk --debug` fue correcto.
+- `flutter analyze` limpio y 301 tests pasan; el último `flutter build apk --debug` fue correcto.
 - **Validación en dispositivo pendiente** para las fases 3, 4, 6 y 7 (FCM real, reglas desplegadas, tarjeta de 5 días, cambio de día y matrices de alarma). Firestore y FCM no tienen cobertura automatizada.
 
 ## Environment/Config Notes
@@ -81,7 +81,7 @@ Toolchain: Flutter 3.47.2 / Dart 3.13.2 / firebase CLI 15.28.2 (pubspec pins `sd
 - Indexes: `firestore.indexes.json` **está commiteado y define 4 compuestos** sobre `registrosToma`: `(pacienteId ASC, horaProgramada DESC)` compartido por `streamRegistrosDePaciente`, `getRegistrosRecientes`, `streamRegistrosDePacientes` (`whereIn` counts as equality) y `_EstadoReciente` (`detalle_paciente_screen.dart`); `(pacienteId ASC, horaProgramada ASC)` para `getRegistrosEnRango` (reconcile; `FAILED_PRECONDITION` swallowed in `AppState`); `(pacienteId ASC, tratamientoId ASC, horaProgramada ASC)` para `streamTomasPendientesHoy`; y `(pacienteId ASC, tratamientoId ASC, horaProgramada DESC)` para `getHistorialDeTratamiento` (fallback ASC en memoria si falta). **No modifiques ese archivo ni despliegues índices sin avisar qué cambia**: los índices de producción se gestionan desde la consola de Firebase y `firebase deploy --only firestore:indexes` no se usa aquí. Equality-only queries (`buscarPacientePorCodigo`, `streamPacientesDelCuidador`, `streamPacientePorDispositivo`, `streamTratamientosDePaciente`) need **no** composite — Firestore merges single-field indexes. Any new `where`/`orderBy` combination needs a console index or production-only `failed-precondition: The query requires an index`.
 
 ## Tests & Gotchas
-- 35 files/292 tests, no Firebase init. Pure logic covered; `reconciliar()` not covered. Tests pin alarm hash literals — changing hash breaks them. `OmitidasService.idDocumento` has no pin (risky if hash changes).
+- 35 files/301 tests, no Firebase init. Pure logic covered; `reconciliar()` not covered. Tests pin alarm hash literals — changing hash breaks them. `OmitidasService.idDocumento` has no pin (risky if hash changes).
 - Firestore-dependent flows are verified **only manually**: README's "Prueba del flujo completo" is the current end-to-end script (needs two devices/emulators or the Firestore console).
 - Alarm brightness: `SensoresService.subirBrilloAlMaximo()` requires `WRITE_SETTINGS`; it checks `canChangeSystemBrightness`, opens the special settings page once (`asegurarPermisoBrillo`), and saves the prior system brightness so `restaurarBrillo()` restores it. `screen_brightness` 2.1.11 has no `resetSystemScreenBrightness`, hence the manual save; alarm re-raises on resume.
 - Live bug to know: AndroidManifest declares no `<receiver>` components (ScheduledNotificationReceiver/BootReceiver/ActionBroadcastReceiver) — only permissions, incl. `RECEIVE_BOOT_COMPLETED`; the plugin's own manifest adds none, so scheduled alarms don't survive reboot and action buttons aren't handled. `flutter analyze` cannot catch this.

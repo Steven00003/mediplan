@@ -12,6 +12,7 @@ void main() {
         pasosAplicables(29),
         <PasoPermisoPaciente>[
           PasoPermisoPaciente.notificaciones,
+          PasoPermisoPaciente.canalAlarmas,
           PasoPermisoPaciente.bateria,
           PasoPermisoPaciente.inicioAutomatico,
         ],
@@ -29,6 +30,7 @@ void main() {
       final pasos = pasosAplicables(26);
       expect(pasos.contains(PasoPermisoPaciente.alarmasExactas), isFalse);
       expect(pasos.contains(PasoPermisoPaciente.pantallaCompleta), isFalse);
+      expect(pasos.contains(PasoPermisoPaciente.canalAlarmas), isTrue);
     });
   });
 

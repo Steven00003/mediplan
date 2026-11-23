@@ -49,6 +49,23 @@ class VentanaAlarmas {
   static const int _baseIdAlarmaPuntual = 0x30000000;
   static const int _tamanoIdAlarmaPuntual = 0x10000000;
 
+  /// Ids huérfanos de la ventana: los que están en el rango reservado de alarmas
+  /// principales y no forman parte de las ocurrencias deseadas de este rearme.
+  ///
+  /// No resuelve tratamientos ni lee payloads: solo mira el id.
+  static Set<int> idsHuerfanosVentana(
+    Iterable<int> idsPendientes,
+    Set<int> idsDeseadas,
+  ) {
+    final huerfanas = <int>{};
+    for (final id in idsPendientes) {
+      if (id < minIdAlarmaPuntual || id > maxIdAlarmaPuntual) continue;
+      if (idsDeseadas.contains(id)) continue;
+      huerfanas.add(id);
+    }
+    return huerfanas;
+  }
+
   /// Genera las ocurrencias de [horarios] dentro de la ventana.
   ///
   /// [ahora] define el inicio de la ventana y el instante a partir del cual una

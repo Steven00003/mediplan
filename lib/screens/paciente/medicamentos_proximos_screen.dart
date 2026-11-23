@@ -50,9 +50,11 @@ class MedicamentosProximosScreen extends StatefulWidget {
 class _MedicamentosProximosScreenState extends State<MedicamentosProximosScreen>
     with WidgetsBindingObserver {
   final FirestoreService _fs = FirestoreService();
+  final NotificacionesService _notif = NotificacionesService();
   Timer? _timer;
   bool _alarmaAbierta = false;
   bool _permisosCriticosFaltan = false;
+  bool _canalAlarmasEnProblema = false;
 
   /// Registros de hoy para pintar el estado de cada dosis. Se crea una vez por
   /// paciente para no volver a suscribirse en cada rebuild.
@@ -106,6 +108,14 @@ class _MedicamentosProximosScreenState extends State<MedicamentosProximosScreen>
     final pantalla = sdk >= 34 ? await notif.puedeUsarPantallaCompleta() : null;
     final energia = sdk >= 23 ? await notif.estadoEnergia() : null;
     final bateria = energia?['ignoringBatteryOptimizations'] as bool?;
+    bool canalEnProblema = false;
+    if (sdk >= 26) {
+      final canal = await _notif.canalDeAlarmas();
+      canalEnProblema = canalAlarmasEnProblema(
+        canal,
+        notificacionesHabilitadas: notificaciones,
+      );
+    }
     if (!mounted) return;
     setState(() {
       _permisosCriticosFaltan = faltanPermisosCriticos(
@@ -115,6 +125,7 @@ class _MedicamentosProximosScreenState extends State<MedicamentosProximosScreen>
         pantallaCompleta: pantalla,
         bateriaSinRestricciones: bateria,
       );
+      _canalAlarmasEnProblema = canalEnProblema;
     });
   }
 
@@ -519,6 +530,36 @@ class _MedicamentosProximosScreenState extends State<MedicamentosProximosScreen>
                     );
                   },
                   child: const Text('Comprobar'),
+                ),
+              ),
+            ),
+          ),
+        if (_canalAlarmasEnProblema)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.sm,
+              AppSpacing.xs,
+              AppSpacing.sm,
+              0,
+            ),
+            child: Card(
+              color: AppColors.warning.withValues(alpha: 0.12),
+              child: ListTile(
+                leading: const Icon(
+                  Icons.volume_off,
+                  color: AppColors.warning,
+                ),
+                title: const Text('Las alarmas estan en silencio'),
+                subtitle: const Text(
+                  'En tu celular las alarmas estan en silencio. Cambialas a '
+                  'sonoras para que suenen y se abran a pantalla completa.',
+                ),
+                trailing: TextButton(
+                  onPressed: () async {
+                    await _notif.abrirAjustesCanalAlarmas();
+                    if (mounted) await _comprobarPermisosCriticos();
+                  },
+                  child: const Text('Abrir canal'),
                 ),
               ),
             ),

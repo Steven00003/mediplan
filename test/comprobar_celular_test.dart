@@ -3,6 +3,8 @@
 // Flutter, canales nativos ni Firestore.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mediplan/services/notificaciones_service.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:mediplan/utils/comprobar_celular.dart';
 
 void main() {
@@ -217,5 +219,72 @@ void main() {
         isNull,
       );
     });
+  });
+
+  test('canal de alarma migrado a v2', () {
+    expect(NotificacionesService.canalAlarmasId, 'alarmas_medicamentos_v2');
+  });
+
+  test('guia Huawei menciona alarma como notificacion', () {
+    final guia = guiaParaFabricante('Huawei');
+    expect(guia.pasos.join(' '), contains('llega como notificación'));
+  });
+
+  test('timeout de la notificacion de alarma es 15 minutos', () {
+    expect(
+      NotificacionesService.timeoutAlarmaNotificacionMs,
+      15 * 60 * 1000,
+    );
+  });
+
+  test('no muestra fila de canal en Android 7 o menor', () {
+    expect(mostrarFilaCanalAlarmas(24), isFalse);
+    expect(mostrarFilaCanalAlarmas(25), isFalse);
+  });
+
+  test('muestra fila de canal desde Android 8', () {
+    expect(mostrarFilaCanalAlarmas(26), isTrue);
+  });
+
+  test('canal en problema si notificaciones desactivadas', () {
+    final canal = AndroidNotificationChannel(
+      'alarmas_medicamentos_v2',
+      'Alarmas',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+    );
+    expect(
+      canalAlarmasEnProblema(canal, notificacionesHabilitadas: false),
+      isTrue,
+    );
+  });
+
+  test('canal en problema si esta en silencio', () {
+    final canal = AndroidNotificationChannel(
+      'alarmas_medicamentos_v2',
+      'Alarmas',
+      importance: Importance.low,
+      playSound: false,
+      enableVibration: false,
+    );
+    expect(
+      canalAlarmasEnProblema(canal, notificacionesHabilitadas: true),
+      isTrue,
+    );
+  });
+
+  test('canal listo no esta en problema', () {
+    final canal = AndroidNotificationChannel(
+      'alarmas_medicamentos_v2',
+      'Alarmas',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+    );
+    expect(
+      canalAlarmasEnProblema(canal, notificacionesHabilitadas: true),
+      isFalse,
+    );
   });
 }

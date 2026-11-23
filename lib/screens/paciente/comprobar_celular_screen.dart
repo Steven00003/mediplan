@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../../services/diagnostico_service.dart';
 import '../../services/local_store.dart';
 import '../../services/notificaciones_service.dart';
@@ -47,6 +47,8 @@ class _ComprobarCelularScreenState extends State<ComprobarCelularScreen>
   final DiagnosticoService _diag = DiagnosticoService();
 
   EstadoCelular? _estado;
+  AndroidNotificationChannel? _canalAlarmas;
+  AndroidNotificationChannel? _canalRecordatorios;
   String? _error;
   bool _cargando = false;
   bool _abriendoAjuste = false;
@@ -78,8 +80,14 @@ class _ComprobarCelularScreenState extends State<ComprobarCelularScreen>
     try {
       final estado = await (widget.cargarEstado ?? _cargarEstadoReal)();
       if (!mounted) return;
+      final canal = await _notif.canalDeAlarmas().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => null,
+      );
+      if (!mounted) return;
       setState(() {
         _estado = estado;
+        _canalAlarmas = canal;
         _cargando = false;
       });
     } catch (e) {
@@ -152,6 +160,8 @@ class _ComprobarCelularScreenState extends State<ComprobarCelularScreen>
       bateriaSinRestricciones: bateria,
       alarmas: alarmas,
       ultimoRearme: rearme?.fecha,
+      huerfanasCanceladasUltimoRearme:
+          rearme?.huerfanasCanceladas ?? 0,
       ultimoErrorSincronizacion: ultimoError,
     );
   }
@@ -340,6 +350,29 @@ class _ComprobarCelularScreenState extends State<ComprobarCelularScreen>
                     guia: guiaParaFabricante(estado.fabricante),
                   ),
                   const SizedBox(height: AppSpacing.md),
+                  if (mostrarFilaCanalAlarmas(estado.sdkInt))
+                    _CanalAlarmasCard(
+                      titulo: 'Canal de alarmas',
+                      canal: _canalAlarmas,
+                      notificacionesHabilitadas: estado.notificacionesPermitidas,
+                      onAbrir: _abrirAjustesCanalAlarmas,
+                    ),
+                  if (mostrarFilaCanalAlarmas(estado.sdkInt))
+                    const SizedBox(height: AppSpacing.md),
+                  if (mostrarFilaCanalAlarmas(estado.sdkInt))
+                    _CanalAlarmasCard(
+                      titulo: 'Canal de recordatorios tardios',
+                      canal: _canalRecordatorios,
+                      notificacionesHabilitadas: estado.notificacionesPermitidas,
+                      onAbrir: () async {
+                        await _notif.abrirAjustesCanal(
+                          NotificacionesService.canalRecordatoriosTardiosId,
+                        );
+                        if (mounted) await _cargar();
+                      },
+                    ),
+                  if (mostrarFilaCanalAlarmas(estado.sdkInt))
+                    const SizedBox(height: AppSpacing.md),
                   _tituloSeccion('Probar alarma'),
                   _ProbarAlarmaCard(
                     probando: _probando,
@@ -355,12 +388,88 @@ class _ComprobarCelularScreenState extends State<ComprobarCelularScreen>
     );
   }
 
+  Future<void> _abrirAjustesCanalAlarmas() async {
+    await _notif.abrirAjustesCanalAlarmas();
+    if (mounted) await _cargar();
+  }
+
   Widget _tituloSeccion(String titulo) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.xs),
       child: Text(
         titulo,
         style: AppType.title.copyWith(color: AppColors.onGreen),
+      ),
+    );
+  }
+}
+
+class _CanalAlarmasCard extends StatelessWidget {
+  final String titulo;
+  final AndroidNotificationChannel? canal;
+  final bool? notificacionesHabilitadas;
+  final Future<void> Function() onAbrir;
+
+  const _CanalAlarmasCard({
+    required this.titulo,
+    required this.canal,
+    required this.notificacionesHabilitadas,
+    required this.onAbrir,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enProblema = canalAlarmasEnProblema(
+      canal,
+      notificacionesHabilitadas: notificacionesHabilitadas,
+    );
+    return Card(
+      color: enProblema
+          ? AppColors.warning.withValues(alpha: 0.12)
+          : AppColors.primary,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  enProblema
+                      ? Icons.warning_amber_rounded
+                      : Icons.notifications_active,
+                  color: enProblema ? AppColors.warning : AppColors.accent,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Text(
+                    titulo,
+                    style: AppType.title.copyWith(color: AppColors.onGreen),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(fraseCanalAlarmas(
+              canal,
+              notificacionesHabilitadas: notificacionesHabilitadas,
+            )),
+            if (canal != null) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Importancia: ${canal!.importance.name}. '
+                'Sonido: ${canal!.playSound ? 'si' : 'no'}. '
+                'Vibracion: ${canal!.enableVibration ? 'si' : 'no'}.',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.sm),
+            ElevatedButton(
+              onPressed: onAbrir,
+              child: const Text('Abrir ajustes del canal de alarmas'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -609,6 +718,11 @@ class _AlarmasProgramadasCard extends StatelessWidget {
               etiqueta: 'Último rearmado',
               valor: textoFechaHoraLocal(estado.ultimoRearme),
             ),
+            if (estado.huerfanasCanceladasUltimoRearme > 0)
+              _FilaDato(
+                etiqueta: 'Huérfanas canceladas',
+                valor: '${estado.huerfanasCanceladasUltimoRearme}',
+              ),
             if (estado.ultimoErrorSincronizacion != null &&
                 estado.ultimoErrorSincronizacion!.trim().isNotEmpty) ...[
               const SizedBox(height: AppSpacing.sm),

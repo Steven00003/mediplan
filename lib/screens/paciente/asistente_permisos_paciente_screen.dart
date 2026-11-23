@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/notificaciones_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_tokens.dart';
+import '../../utils/comprobar_celular.dart';
 import '../../utils/pasos_permisos_paciente.dart';
 import 'comprobar_celular_screen.dart';
 
@@ -79,6 +80,9 @@ class _AsistentePermisosPacienteScreenState
       case PasoPermisoPaciente.pantallaCompleta:
         await n.solicitarPermisoPantallaCompleta();
         return;
+      case PasoPermisoPaciente.canalAlarmas:
+        await n.abrirAjustesCanalAlarmas();
+        return;
       case PasoPermisoPaciente.bateria:
         await n.abrirAjustesBateria();
         return;
@@ -99,6 +103,12 @@ class _AsistentePermisosPacienteScreenState
       case PasoPermisoPaciente.pantallaCompleta:
         if ((widget.sdkInt ?? 0) < 34) return true;
         return n.puedeUsarPantallaCompleta();
+      case PasoPermisoPaciente.canalAlarmas:
+        final canal = await n.canalDeAlarmas();
+        return !canalAlarmasEnProblema(
+          canal,
+          notificacionesHabilitadas: true,
+        );
       case PasoPermisoPaciente.bateria:
         final energia = await n.estadoEnergia();
         return energia?['ignoringBatteryOptimizations'] as bool?;

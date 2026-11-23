@@ -97,7 +97,13 @@ class NotificacionesService {
   /// las notificaciones que muestra FCM con la app en segundo plano/cerrada
   /// necesitan que el canal ya exista (Android 8+ descarta las notificaciones
   /// cuyo canal no esté creado).
-  static const String canalAlarmasId = 'alarmas_medicamentos';
+  static const String canalAlarmasId = 'alarmas_medicamentos_v2';
+  static const String canalAlarmasIdAntiguo = 'alarmas_medicamentos';
+
+  /// Tiempo máximo que la notificación insistente de la alarma puede sonar
+  /// antes de cancelarse sola. Coincide con la ventana hasta el recordatorio
+  /// tardío (15 minutos).
+  static const int timeoutAlarmaNotificacionMs = 15 * 60 * 1000;
   static const String canalCuidadorId = 'alertas_cuidador';
   static const String canalAvisoPrevioId = 'avisos_previos';
   static const String canalFelicitacionesId = 'felicitaciones';
@@ -123,7 +129,7 @@ class NotificacionesService {
     'com.mediplan.mediplan/diagnostico',
   );
 
-  static const _channel = AndroidNotificationDetails(
+  static final _channel = AndroidNotificationDetails(
     canalAlarmasId,
     'Alarmas de medicamentos',
     channelDescription: 'Recordatorios de toma de medicamentos de MediPlan',
@@ -134,6 +140,19 @@ class NotificacionesService {
     visibility: NotificationVisibility.public,
     audioAttributesUsage: AudioAttributesUsage.alarm,
     ongoing: true,
+    autoCancel: false,
+    timeoutAfter: timeoutAlarmaNotificacionMs,
+    playSound: true,
+    enableVibration: true,
+    vibrationPattern: Int64List.fromList(<int>[0, 1000, 500, 1000, 500, 1000]),
+    additionalFlags: Int32List.fromList(<int>[4]), // FLAG_INSISTENT
+    actions: <AndroidNotificationAction>[
+      AndroidNotificationAction(
+        'abrir_y_tomar',
+        'Abrir y tomar',
+        showsUserInterface: true,
+      ),
+    ],
   );
 
   static const _canalCuidador = AndroidNotificationDetails(
@@ -299,6 +318,11 @@ class NotificacionesService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     if (android == null) return;
+    // Migra el canal antiguo: Android no permite cambiar su sonido ni
+    // importancia una vez creado. Se elimina para no dejar avisos duplicados.
+    try {
+      await android.deleteNotificationChannel(canalAlarmasIdAntiguo);
+    } catch (_) {}
     await android.createNotificationChannel(
       const AndroidNotificationChannel(
         canalAlarmasId,
@@ -440,6 +464,20 @@ class NotificacionesService {
     return null;
   }
 
+  Future<AndroidNotificationChannel?> canalDeRecordatoriosTardios() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    try {
+      final canales = await android?.getNotificationChannels();
+      for (final canal in canales ?? const <AndroidNotificationChannel>[]) {
+        if (canal.id == canalRecordatoriosTardiosId) return canal;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Notificaciones que Android todavía tiene pendientes de disparar.
   Future<List<PendingNotificationRequest>> solicitudesPendientes() async {
     try {
@@ -512,6 +550,21 @@ class NotificacionesService {
     } catch (_) {}
   }
 
+  Future<void> abrirAjustesCanalAlarmas() async {
+    try {
+      await _canalSistema.invokeMethod<void>('abrirAjustesCanalAlarmas');
+    } catch (_) {}
+  }
+
+  Future<void> abrirAjustesCanal(String channelId) async {
+    try {
+      await _canalSistema.invokeMethod<void>(
+        'abrirAjustesCanal',
+        <String, dynamic>{'canalId': channelId},
+      );
+    } catch (_) {}
+  }
+
   /// Programa una alarma **puntual** (una sola ejecución) para un horario
   /// HH:mm.
   ///
@@ -547,7 +600,7 @@ class NotificacionesService {
       'Hora de tu medicina',
       '$nombreMedicamento - Hora de tomarla',
       horaSiguiente,
-      const NotificationDetails(
+      NotificationDetails(
         android: _channel,
         iOS: DarwinNotificationDetails(
           presentAlert: true,
@@ -589,7 +642,7 @@ class NotificacionesService {
       'Prueba de alarma',
       'Alarma de prueba de MediPlan. Debe abrir la pantalla de prueba.',
       cuando,
-      const NotificationDetails(
+      NotificationDetails(
         android: _channel,
         iOS: DarwinNotificationDetails(
           presentAlert: true,
@@ -834,7 +887,7 @@ class NotificacionesService {
       'Hora de tu medicina',
       '$nombreMedicamento - Hora de tomarla',
       cuando,
-      const NotificationDetails(
+      NotificationDetails(
         android: _channel,
         iOS: DarwinNotificationDetails(
           presentAlert: true,
@@ -1124,6 +1177,19 @@ class NotificacionesService {
         }
       }
 
+      // Cancelación de la ventana: cualquier notificación pendiente cuyo id
+      // esté en el rango reservado de alarmas principales y no forme parte de
+      // las ocurrencias deseadas de este rearme se cancela, sin intentar
+      // resolver su tratamiento ni leer su payload.
+      final huerfanas = VentanaAlarmas.idsHuerfanosVentana(
+        pendientes.map((pendiente) => pendiente.id),
+        deseadasIds,
+      );
+      for (final id in huerfanas) {
+        await _plugin.cancel(id);
+        await _olvidarProgramacion(id);
+      }
+
       final plan = CalculadoraRearme.calcular(
         deseadas: deseadas,
         actuales: actuales,
@@ -1148,6 +1214,7 @@ class NotificacionesService {
       await DiagnosticoService().registrarRearme(
         cantidad: deseadas.length,
         tratamientos: tratamientos.length,
+        huerfanasCanceladas: huerfanas.length,
       );
       return plan.programar.length;
     } finally {
@@ -1230,7 +1297,7 @@ class NotificacionesService {
         'Tu medicina se acerca',
         '$nombreMedicamento a las ${horario.hora}. Ve preparando tu dosis.',
         cuando,
-        const NotificationDetails(
+        NotificationDetails(
           android: _canalAvisoPrevio,
           iOS: DarwinNotificationDetails(
             presentAlert: true,
@@ -1291,7 +1358,7 @@ class NotificacionesService {
       '$nombreMedicamento de las $horaOriginal sigue esperando. '
           'Tómala y marca YA.',
       cuando,
-      const NotificationDetails(
+      NotificationDetails(
         android: _canalRecordatorioTardio,
         iOS: DarwinNotificationDetails(
           presentAlert: true,
@@ -1343,7 +1410,7 @@ class NotificacionesService {
         '$nombreMedicamento de las $hora sigue esperando. '
             'Tómala y marca YA.',
         cuando,
-        const NotificationDetails(
+        NotificationDetails(
           android: _canalRecordatorioTardio,
           iOS: DarwinNotificationDetails(
             presentAlert: true,
@@ -1438,7 +1505,7 @@ class NotificacionesService {
         idDeFelicitacion(tratamientoId, horaProgramada),
         '¡Bien hecho!',
         'Toma registrada. Sigue así.',
-        const NotificationDetails(
+        NotificationDetails(
           android: _canalFelicitaciones,
           iOS: DarwinNotificationDetails(
             presentAlert: true,
@@ -1683,7 +1750,7 @@ class NotificacionesService {
       id,
       titulo,
       cuerpo,
-      const NotificationDetails(
+      NotificationDetails(
         android: _canalCuidador,
         iOS: DarwinNotificationDetails(
           presentAlert: true,

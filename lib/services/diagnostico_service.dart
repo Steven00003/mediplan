@@ -83,17 +83,20 @@ class RearmeAlarmas {
   final DateTime fecha;
   final int cantidad;
   final int tratamientos;
+  final int huerfanasCanceladas;
 
   const RearmeAlarmas({
     required this.fecha,
     required this.cantidad,
     required this.tratamientos,
+    this.huerfanasCanceladas = 0,
   });
 
   Map<String, dynamic> toJson() => {
     'fecha': fecha.millisecondsSinceEpoch,
     'cantidad': cantidad,
     'tratamientos': tratamientos,
+    'huerfanasCanceladas': huerfanasCanceladas,
   };
 
   factory RearmeAlarmas.fromJson(Map<String, dynamic> json) {
@@ -261,6 +264,7 @@ class DiagnosticoService {
   Future<void> registrarRearme({
     required int cantidad,
     required int tratamientos,
+    int huerfanasCanceladas = 0,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -268,6 +272,7 @@ class DiagnosticoService {
         fecha: DateTime.now(),
         cantidad: cantidad,
         tratamientos: tratamientos,
+        huerfanasCanceladas: huerfanasCanceladas,
       );
       await prefs.setString(_kUltimoRearme, jsonEncode(rearme.toJson()));
     } catch (e) {

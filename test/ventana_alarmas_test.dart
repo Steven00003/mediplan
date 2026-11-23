@@ -276,4 +276,15 @@ void main() {
     expect(puntuales, 63);
     expect(puntuales + otras, lessThan(500));
   });
+
+  test('ids huerfanos dentro del rango se cancelan', () {
+    final deseadas = <int>{-0x3FFFFFF0};
+    final pendientes = <int>[
+      -0x3FFFFFF0, // deseado
+      -0x3FFFFFF1, // huerfano dentro del rango
+      -0x0FFFFFFF, // otro rango, no se toca
+    ];
+    final huerfanas = VentanaAlarmas.idsHuerfanosVentana(pendientes, deseadas);
+    expect(huerfanas, {-0x3FFFFFF1});
+  });
 }

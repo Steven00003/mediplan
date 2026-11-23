@@ -80,7 +80,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: const Text('Notificaciones de alertas'),
         content: const Text(
           'MediPlan te avisa si un paciente lleva 5 dias sin tomas registradas. '
-          'Activa las notificaciones para no perder esos avisos.',
+          'Activa las notificaciones para no perder esos avisos. Si las alertas '
+          'llegan en silencio, revisa el canal Alertas de tus pacientes en los '
+          'ajustes de la app.',
         ),
         actions: [
           TextButton(
