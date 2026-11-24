@@ -1,6 +1,7 @@
 ﻿<!DOCTYPE html>
 <html lang="es">
 <head>
+  <meta charset="utf-8">
 <!--
   MediPlan · Página de presentación y manual
   ==========================================
@@ -10,7 +11,6 @@
 
   No hay JavaScript, enlaces externos, analíticas, cookies ni recursos remotos.
 -->
-  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="MediPlan: pastillero familiar para cuidadores y pacientes. Manual de uso, alarmas, seguridad, límites y privacidad.">
@@ -70,18 +70,18 @@
         </nav>
       </details>
 
-            <nav class="nav-desktop" aria-label="Navegaci�n principal">
+            <nav class="nav-desktop" aria-label="Navegación principal">
         <ul class="nav-list">
           <li><a href="#inicio" aria-current="page">Inicio</a></li>
-          <li><a href="#que-es">Qu� es</a></li>
-          <li><a href="#como-funciona">C�mo funciona</a></li>
+          <li><a href="#que-es">Qué es</a></li>
+          <li><a href="#como-funciona">Cómo funciona</a></li>
           <li><a href="#manual-cuidador">Cuidador</a></li>
           <li><a href="#manual-paciente">Paciente</a></li>
           <li><a href="#faq">Preguntas</a></li>
           <li><a href="#privacidad">Seguridad</a></li>
           <li>
             <details class="nav-more">
-              <summary>M�s</summary>
+              <summary>Más</summary>
               <ul>
                 <li><a href="#ajustes">Ajustes</a></li>
                 <li><a href="#arquitectura">Arquitectura</a></li>
@@ -105,6 +105,12 @@
           <div class="actions">
             <a class="btn btn-primary" href="#como-funciona">Cómo funciona</a>
             <a class="btn btn-secondary" href="#manual-cuidador">Manual</a>
+          </div>
+          <div class="hero-stats">
+            <div class="hero-stat"><strong>Android</strong><br>minSdk 24</div>
+            <div class="hero-stat"><strong>Alarmas</strong><br>a pantalla completa</div>
+            <div class="hero-stat"><strong>Sin backend</strong><br>propio</div>
+            <div class="hero-stat"><strong>Paciente</strong><br>sin contrasena</div>
           </div>
         </div>
                 <div class="hero-art">
@@ -729,14 +735,15 @@
       </div>
     </section>
 
-    <p class="back-to-top"><a href="#inicio">Volver arriba</a></p>
   </main>
 
-  <footer class="site-footer">
-    <div class="wrap">
-      <p><strong>MediPlan · Pastillero familiar</strong></p>
-      <p>Equipo: David Steven Patiño Rueda · 2026</p>
-      <p>Proyecto académico de la UTS. No es un dispositivo médico y no reemplaza la indicación de un médico.</p>
+    <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <p><strong>MediPlan · Pastillero familiar</strong></p>
+        <p>Proyecto académico de la UTS. No es un dispositivo médico y no reemplaza la indicación de un médico.</p>
+        <p>Sin cookies, sin analíticas y sin recursos externos.</p>
+      </div>
       <nav aria-label="Navegación del pie de página">
         <ul class="footer-nav">
           <li><a href="#inicio">Inicio</a></li>
@@ -746,9 +753,12 @@
           <li><a href="#top">Volver arriba</a></li>
         </ul>
       </nav>
-      <p>Contacto: dspatino@uts.edu.co (texto, sin enlace de correo mientras sea un marcador).</p>
-      <p>Sin cookies, sin analíticas y sin recursos externos.</p>
-      <p class="no-print">Para imprimir el manual, usa la opción Imprimir de tu navegador.</p>
+      <div>
+        <p><strong>Equipo y contacto</strong></p>
+        <p>David Steven Patiño Rueda — 2026</p>
+        <p><a href="mailto:dspatino@uts.edu.co">dspatino@uts.edu.co</a></p>
+        <p class="no-print">Para imprimir el manual, usa la opción Imprimir de tu navegador.</p>
+      </div>
     </div>
   </footer>
 </body>
