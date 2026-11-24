@@ -29,10 +29,10 @@ import 'nuevo_paciente_screen.dart';
 ///
 /// Escucha en tiempo real la colección `registrosToma` de sus pacientes y:
 ///  - refleja automáticamente los cambios de estado (tomada/pospuesta/olvidada),
-///  - muestra una notificación local al cuidador mientras la app está visible:
-///    una por cada confirmación, y las olvidadas agrupadas en un solo resumen
-///    por emisión. FCM ya no envía confirmaciones: solo se usa para la alerta
-///    de 5 días sin tomas (ver `PushService`).
+///  - muestra solo un resumen local de tomas olvidadas, agrupado por emisión,
+///    mientras la app está visible. Las confirmaciones no generan aviso local
+///    ni push. FCM solo se usa para la alerta de 5 días sin tomas (ver
+///    `PushService`).
 ///
 /// Además registra el token FCM de este dispositivo en sus pacientes, que es lo
 /// que permite al dispositivo del paciente enviarle esa alerta.
@@ -135,13 +135,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    // Las confirmaciones avisan de una en una; las olvidadas se agrupan en una
+    // Solo las tomas olvidadas generan aviso local. Las confirmaciones
+    // (tomada/tardía/pospuesta) no notifican al cuidador: se ven en la lista de
+    // actividad reciente y en el historial. Las olvidadas se agrupan en una
     // sola notificación por emisión, porque la reconciliación puede marcar
     // varias a la vez (un backfill de días) y una por cada dosis sería ruido.
     var olvidadas = 0;
     String? detalleOlvidada;
     for (final r in registros) {
-      if (!_ameritaAviso(r.estado)) continue;
+      if (r.estado != EstadoToma.olvidada) continue;
       if (_notificados.contains(r.id)) continue;
       _notificados.add(r.id);
 
@@ -155,23 +157,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       }
 
-      if (r.estado == EstadoToma.olvidada) {
-        // La lista llega de la más reciente a la más antigua: la primera
-        // olvidada es la más reciente y es la que se muestra en el resumen.
-        detalleOlvidada ??=
-            '$nombrePaciente no tomó $nombreMed (${_horaTxt(r.horaProgramada)}).';
-        olvidadas++;
-        continue;
-      }
-
-      final estadoTxt = _verbo(r.estado);
-      if (_appVisible()) {
-        await _notif.mostrarNotificacion(
-          id: r.id.hashCode & 0x7FFFFFFF,
-          titulo: _tituloNotificacion(r.estado),
-          cuerpo: '$nombrePaciente $estadoTxt $nombreMed.',
-        );
-      }
+      // La lista llega de la más reciente a la más antigua: la primera
+      // olvidada es la más reciente y es la que se muestra en el resumen.
+      detalleOlvidada ??=
+          '$nombrePaciente no tomó $nombreMed (${_horaTxt(r.horaProgramada)}).';
+      olvidadas++;
     }
 
     if (olvidadas > 0 && _appVisible()) {
@@ -185,9 +175,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// Solo se muestran notificaciones locales de confirmaciones con la app
-  /// visible. El aviso de 5 días sin tomas llega por FCM y se respalda en el
-  /// detalle del paciente, así que no se duplica aquí.
+  /// El resumen de tomas olvidadas solo se muestra con la app visible. El
+  /// aviso de 5 días sin tomas llega por FCM y se respalda en el detalle del
+  /// paciente, así que no se duplica aquí.
   bool _appVisible() {
     final estado = WidgetsBinding.instance.lifecycleState;
     return estado != AppLifecycleState.paused &&
@@ -195,52 +185,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         estado != AppLifecycleState.detached;
   }
 
-  /// Si un estado amerita aviso al cuidador.
-  ///
-  /// Incluye `tardia` porque la toma **se tomó**: lo que hay que señalar es que
-  /// llegó con retraso, y el cuidador es quien puede validar si eso importa.
-  /// Incluye también `olvidada`: la escribe sola la reconciliación de
-  /// `OmitidasService` y es el aviso más importante (el paciente NO tomó). Las
-  /// olvidadas se agrupan en una sola notificación por emisión para que un
-  /// backfill de varios días no convierta el dashboard en ruido.
-  bool _ameritaAviso(EstadoToma e) =>
-      e == EstadoToma.tomada ||
-      e == EstadoToma.tardia ||
-      e == EstadoToma.pospuesta ||
-      e == EstadoToma.olvidada;
-
   static String _horaTxt(DateTime t) {
     final h = t.hour.toString().padLeft(2, '0');
     final m = t.minute.toString().padLeft(2, '0');
     return '$h:$m';
-  }
-
-  static String _tituloNotificacion(EstadoToma e) {
-    switch (e) {
-      case EstadoToma.tomada:
-        return 'Toma confirmada';
-      case EstadoToma.tardia:
-        return 'Toma tardía';
-      case EstadoToma.pospuesta:
-        return 'Toma pospuesta';
-      default:
-        return 'Toma actualizada';
-    }
-  }
-
-  /// Cómo se describe la acción del paciente, ya gasto el verbo "tomó" para
-  /// que el texto no suene a que tomó tarde y a la vez no se confirmara.
-  static String _verbo(EstadoToma e) {
-    switch (e) {
-      case EstadoToma.tomada:
-        return 'confirmó';
-      case EstadoToma.tardia:
-        return 'confirmó tarde';
-      case EstadoToma.pospuesta:
-        return 'pospuesta (recuerda)';
-      default:
-        return 'actualizó';
-    }
   }
 
   @override

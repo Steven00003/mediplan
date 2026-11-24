@@ -667,7 +667,7 @@ guardar nada en Firestore.
 | FelicitaciÃ³n | `[-0x1FFFFFFF, -0x10000000]` (`:411-412`, `:428-434`) | `felicitaciones` | Inmediata al confirmar; no se programa |
 | Recordatorio tardÃ­o semanal | `[-0x27FFFFFF, -0x20000000]` (`:413-414`, `:437-447`) | `recordatorios_tardios` | Semanal, 15 min despuÃ©s de la toma |
 | Recordatorio tardÃ­o puntual | `[-0x2FFFFFFF, -0x28000000]` (`:415-416`, `:450-455`) | `recordatorios_tardios` | Una sola vez, al posponer |
-| Aviso local del cuidador | Positivo sin subrango reservado: `r.id.hashCode & 0x7FFFFFFF` o `millisecondsSinceEpoch & 0x7FFFFFFF` (`dashboard_screen.dart:124`, `:133`) | `alertas_cuidador` | Solo con la app visible (`dashboard_screen.dart:122-150`) |
+| Aviso local del cuidador | Positivo sin subrango reservado: `millisecondsSinceEpoch & 0x7FFFFFFF` | `alertas_cuidador` | Solo tomas olvidadas, agrupadas, con la app visible. Las confirmaciones no notifican |
 
 `hashEstable` es un polinomio de 31 bits con `0` reservado
 (`hash_estable.dart:18-23`). El `0` nunca se usa como id. La alarma principal
@@ -696,8 +696,8 @@ El **Ãºnico** envÃ­o FCM que queda es la alerta de **5 dÃ­as sin tomas**:
   nombre del paciente y del medicamento (`:199-205`) y el canal
   `alertas_cuidador` (`:206-214`).
 - **No hay otro camino FCM.** No existe `notificarConfirmacion` ni ningÃºn otro
-  `messages:send`; el dashboard solo muestra notificaciones locales mientras la
-  app estÃ¡ visible (`dashboard_screen.dart:122-150`).
+  `messages:send`; el dashboard solo muestra el resumen local de tomas
+  olvidadas mientras la app estÃ¡ visible. Las confirmaciones no notifican.
 
 ### SincronizaciÃ³n del paciente en segundo plano
 

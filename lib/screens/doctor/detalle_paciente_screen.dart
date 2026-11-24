@@ -15,6 +15,8 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_page_route.dart';
 import '../../theme/app_tokens.dart';
 import '../../utils/abrir_marcador.dart';
+import '../../utils/dialogo_progreso.dart';
+import '../../utils/eliminacion_paciente.dart';
 import '../../utils/errores_amigables.dart';
 import '../../utils/estado_codigo_vinculacion.dart';
 import '../../utils/etiqueta_toma.dart';
@@ -35,6 +37,9 @@ import '../../widgets/tarjeta_paciente.dart';
 import 'editar_paciente_screen.dart';
 import 'editar_tratamiento_screen.dart';
 
+String? _codigoFirebase(Object? error) =>
+    error is FirebaseException ? error.code : null;
+
 /// Detalle de un paciente: código de vinculación, sus tratamientos y un
 /// resumen del estado de cumplimiento.
 class DetallePacienteScreen extends StatefulWidget {
@@ -49,6 +54,21 @@ class DetallePacienteScreen extends StatefulWidget {
 }
 
 class _DetallePacienteScreenState extends State<DetallePacienteScreen> {
+  bool _eliminando = false;
+  Paciente? _ultimoPaciente;
+
+  void _cambiarEliminando(bool valor) {
+    if (!mounted || _eliminando == valor) return;
+    setState(() => _eliminando = valor);
+  }
+
+  Widget _detalle(Paciente paciente) {
+    return _DetalleBody(
+      paciente: paciente,
+      onEliminandoChanged: _cambiarEliminando,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -58,6 +78,25 @@ class _DetallePacienteScreenState extends State<DetallePacienteScreen> {
           .snapshots(includeMetadataChanges: true),
       builder: (context, snap) {
         reportarConexionDesde(context, snap.data?.metadata.isFromCache ?? true);
+        final data = snap.data;
+        if (data != null && data.exists) {
+          _ultimoPaciente = Paciente.fromMap(data.id, data.data()!);
+        }
+
+        // Mientras se elimina, el cuerpo se queda montado con el último
+        // paciente conocido. Así se cancelan las suscripciones de sus pestañas
+        // sin desmontar el estado que está ejecutando el borrado, y los errores
+        // esperables (permission-denied/not-found) no reemplazan la pantalla.
+        if (_eliminando) {
+          final paciente = _ultimoPaciente;
+          if (paciente == null) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          return _detalle(paciente);
+        }
+
         if (snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: EstadoCargando(texto: 'Cargando paciente...'),
@@ -78,8 +117,7 @@ class _DetallePacienteScreenState extends State<DetallePacienteScreen> {
             body: Center(child: Text('Paciente no encontrado')),
           );
         }
-        final paciente = Paciente.fromMap(snap.data!.id, snap.data!.data()!);
-        return _DetalleBody(paciente: paciente);
+        return _detalle(Paciente.fromMap(snap.data!.id, snap.data!.data()!));
       },
     );
   }
@@ -93,7 +131,8 @@ class _DetallePacienteScreenState extends State<DetallePacienteScreen> {
 /// entra en las pestañas es el contenido del tratamiento.
 class _DetalleBody extends StatefulWidget {
   final Paciente paciente;
-  const _DetalleBody({required this.paciente});
+  final void Function(bool eliminando)? onEliminandoChanged;
+  const _DetalleBody({required this.paciente, this.onEliminandoChanged});
 
   @override
   State<_DetalleBody> createState() => _DetalleBodyState();
@@ -104,6 +143,12 @@ class _DetalleBodyState extends State<_DetalleBody> {
   int _pestana = 1;
 
   bool _eliminando = false;
+
+  void _cambiarEliminando(bool valor) {
+    if (_eliminando == valor) return;
+    setState(() => _eliminando = valor);
+    widget.onEliminandoChanged?.call(valor);
+  }
 
   Future<void> _confirmarEliminarPaciente() async {
     final confirmado = await showDialog<bool>(
@@ -117,73 +162,79 @@ class _DetalleBodyState extends State<_DetalleBody> {
 
   Future<void> _ejecutarEliminacion() async {
     if (_eliminando) return;
-    setState(() => _eliminando = true);
+    _cambiarEliminando(true);
 
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          content: Row(
-            children: [
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text(
-                  'Eliminando a ${widget.paciente.nombre}...',
-                  style: const TextStyle(color: AppColors.textSecondary),
+    Object? error;
+    try {
+      // El helper cierra el diálogo en un `finally`, también cuando el borrado
+      // falla. Un fallo del push posterior no llega aquí: el servicio lo envía
+      // con `unawaited` después de borrar el paciente.
+      await ejecutarConDialogoDeProgreso(
+        context: context,
+        builder: (_) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
                 ),
-              ),
-            ],
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    'Eliminando a ${widget.paciente.nombre}...',
+                    style: const TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
+        accion: () => FirestoreService().eliminarPaciente(widget.paciente.id),
+      );
+    } catch (e) {
+      error = e;
+    }
 
-    try {
-      await FirestoreService().eliminarPaciente(widget.paciente.id);
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
+    if (!mounted) return;
+
+    if (error == null) {
       HapticFeedback.mediumImpact();
       mostrarSnackExito(context, 'Paciente eliminado.');
       // El detalle se abrió desde la lista: al volver a la raíz se ve el
       // dashboard actualizado por su propio stream.
       Navigator.of(context).popUntil((route) => route.isFirst);
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
-      setState(() => _eliminando = false);
+      return;
+    }
 
-      final reintentar = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          icon: const Icon(Icons.error_outline, color: AppColors.error),
-          title: const Text('No se pudo eliminar'),
-          content: Text(
-            '${mensajeErrorAmigable(e, contexto: 'Error eliminando paciente')} '
-            'Puedes reintentar; los datos que ya se borraron no se duplican.',
-          ),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cerrar'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Reintentar'),
-            ),
-          ],
+    _cambiarEliminando(false);
+
+    final reintentar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.error_outline, color: AppColors.error),
+        title: const Text('No se pudo eliminar'),
+        content: Text(
+          '${mensajeErrorAmigable(error!, contexto: 'Error eliminando paciente')} '
+          'Puedes reintentar; los datos que ya se borraron no se duplican.',
         ),
-      );
-      if (reintentar == true && mounted) {
-        await _ejecutarEliminacion();
-      }
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cerrar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Reintentar'),
+          ),
+        ],
+      ),
+    );
+    if (reintentar == true && mounted) {
+      await _ejecutarEliminacion();
     }
   }
 
@@ -276,6 +327,7 @@ class _DetalleBodyState extends State<_DetalleBody> {
                   SeccionVinculacionDispositivo(
                     paciente: paciente,
                     vinculado: vinculado,
+                    eliminando: _eliminando,
                   ),
                 ],
               ),
@@ -285,9 +337,15 @@ class _DetalleBodyState extends State<_DetalleBody> {
               child: IndexedStack(
                 index: _pestana,
                 children: [
-                  _PestanaHistorial(paciente: paciente),
-                  _PestanaHorario(paciente: paciente),
-                  _PestanaEstadisticas(paciente: paciente),
+                  _PestanaHistorial(
+                    paciente: paciente,
+                    eliminando: _eliminando,
+                  ),
+                  _PestanaHorario(paciente: paciente, eliminando: _eliminando),
+                  _PestanaEstadisticas(
+                    paciente: paciente,
+                    eliminando: _eliminando,
+                  ),
                 ],
               ),
             ),
@@ -320,7 +378,8 @@ class _DetalleBodyState extends State<_DetalleBody> {
 /// tratamientos con sus horas y días más el resumen de estado reciente.
 class _PestanaHorario extends StatefulWidget {
   final Paciente paciente;
-  const _PestanaHorario({required this.paciente});
+  final bool eliminando;
+  const _PestanaHorario({required this.paciente, this.eliminando = false});
 
   @override
   State<_PestanaHorario> createState() => _PestanaHorarioState();
@@ -335,6 +394,8 @@ class _PestanaHorarioState extends State<_PestanaHorario> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.eliminando) return const SizedBox.shrink();
+
     // Deja espacio para el botón flotante "Nuevo medicamento" (56 dp) más
     // 24 dp de separación y el área segura inferior, para que la última tarjeta
     // no quede tapada al hacer scroll hasta el final.
@@ -347,7 +408,7 @@ class _PestanaHorarioState extends State<_PestanaHorario> {
         AppSpacing.sm + paddingInferior,
       ),
       children: [
-        _AvisoSinTomas(pacienteId: paciente.id),
+        _AvisoSinTomas(pacienteId: paciente.id, eliminando: widget.eliminando),
         Text(
           'Medicamentos',
           style: AppType.title.copyWith(color: AppColors.onGreen),
@@ -360,7 +421,7 @@ class _PestanaHorarioState extends State<_PestanaHorario> {
           style: AppType.title.copyWith(color: AppColors.onGreen),
         ),
         const SizedBox(height: AppSpacing.xs),
-        _EstadoReciente(pacienteId: paciente.id),
+        _EstadoReciente(pacienteId: paciente.id, eliminando: widget.eliminando),
       ],
     );
   }
@@ -373,7 +434,11 @@ class _PestanaHorarioState extends State<_PestanaHorario> {
           .where('pacienteId', isEqualTo: paciente.id)
           .snapshots(),
       builder: (context, snap) {
-        if (snap.hasError) {
+        if (snap.hasError &&
+            !ignorarErrorDeStreamDuranteEliminacion(
+              eliminando: widget.eliminando,
+              codigo: _codigoFirebase(snap.error),
+            )) {
           return EstadoError(
             mensaje: mensajeErrorAmigable(
               snap.error!,
@@ -382,6 +447,7 @@ class _PestanaHorarioState extends State<_PestanaHorario> {
             onReintentar: _reintentar,
           );
         }
+        if (snap.hasError) return const SizedBox.shrink();
         if (snap.connectionState == ConnectionState.waiting) {
           return const EstadoCargando(texto: 'Cargando medicamentos...');
         }
@@ -477,7 +543,8 @@ class _PestanaHorarioState extends State<_PestanaHorario> {
 /// detalle del cuidador.
 class _AvisoSinTomas extends StatefulWidget {
   final String pacienteId;
-  const _AvisoSinTomas({required this.pacienteId});
+  final bool eliminando;
+  const _AvisoSinTomas({required this.pacienteId, this.eliminando = false});
 
   @override
   State<_AvisoSinTomas> createState() => _AvisoSinTomasState();
@@ -507,6 +574,8 @@ class _AvisoSinTomasState extends State<_AvisoSinTomas> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.eliminando) return const SizedBox.shrink();
+
     return StreamBuilder<List<Tratamiento>>(
       stream: _tratamientos,
       builder: (context, tratSnap) {
@@ -600,7 +669,8 @@ class _AvisoSinTomasState extends State<_AvisoSinTomas> {
 /// se volvería a suscribir y a releer Firestore de cero.
 class _PestanaHistorial extends StatefulWidget {
   final Paciente paciente;
-  const _PestanaHistorial({required this.paciente});
+  final bool eliminando;
+  const _PestanaHistorial({required this.paciente, this.eliminando = false});
 
   @override
   State<_PestanaHistorial> createState() => _PestanaHistorialState();
@@ -640,6 +710,8 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.eliminando) return const SizedBox.shrink();
+
     return StreamBuilder<List<Tratamiento>>(
       key: ValueKey('historial-tratamientos-$_reintento'),
       stream: _tratamientos,
@@ -647,7 +719,11 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
         if (tratSnap.connectionState == ConnectionState.waiting) {
           return const EstadoCargando(texto: 'Cargando historial...');
         }
-        if (tratSnap.hasError) {
+        if (tratSnap.hasError &&
+            !ignorarErrorDeStreamDuranteEliminacion(
+              eliminando: widget.eliminando,
+              codigo: _codigoFirebase(tratSnap.error),
+            )) {
           return EstadoError(
             mensaje: mensajeErrorAmigable(
               tratSnap.error!,
@@ -656,6 +732,7 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
             onReintentar: _reintentar,
           );
         }
+        if (tratSnap.hasError) return const SizedBox.shrink();
         // Se resuelve el nombre una sola vez por lista en vez de un fetch por
         // fila, y con un stream propio para que un medicamento renombrado se
         // refleje sin recargar.
@@ -668,7 +745,11 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
           key: ValueKey('historial-registros-$_reintento'),
           stream: _registros,
           builder: (context, snap) {
-            if (snap.hasError) {
+            if (snap.hasError &&
+                !ignorarErrorDeStreamDuranteEliminacion(
+                  eliminando: widget.eliminando,
+                  codigo: _codigoFirebase(snap.error),
+                )) {
               return EstadoError(
                 mensaje: mensajeErrorAmigable(
                   snap.error!,
@@ -677,6 +758,7 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
                 onReintentar: _reintentar,
               );
             }
+            if (snap.hasError) return const SizedBox.shrink();
             if (snap.connectionState == ConnectionState.waiting) {
               return const EstadoCargando(texto: 'Cargando historial...');
             }
@@ -1115,11 +1197,13 @@ class _FichaPaciente extends StatelessWidget {
 class SeccionVinculacionDispositivo extends StatefulWidget {
   final Paciente paciente;
   final bool vinculado;
+  final bool eliminando;
 
   const SeccionVinculacionDispositivo({
     super.key,
     required this.paciente,
     required this.vinculado,
+    this.eliminando = false,
   });
 
   @override
@@ -1211,7 +1295,7 @@ class _SeccionVinculacionDispositivoState
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _vinculo,
+      stream: widget.eliminando ? null : _vinculo,
       builder: (context, snap) {
         final expiraEn = _fechaDeExpiracion(snap.data?.data()?['expiraEn']);
         final ahora = DateTime.now();
@@ -1382,6 +1466,7 @@ class _SeccionVinculacionDispositivoState
     AsyncSnapshot<DocumentSnapshot<Map<String, dynamic>>> snap,
     DateTime ahora,
   ) {
+    if (widget.eliminando) return const SizedBox.shrink();
     if (_vinculo == null) {
       return const Text(
         'Sin vencimiento',
@@ -1426,7 +1511,8 @@ DateTime? _fechaDeExpiracion(Object? valor) {
 
 class _EstadoReciente extends StatefulWidget {
   final String pacienteId;
-  const _EstadoReciente({required this.pacienteId});
+  final bool eliminando;
+  const _EstadoReciente({required this.pacienteId, this.eliminando = false});
 
   @override
   State<_EstadoReciente> createState() => _EstadoRecienteState();
@@ -1439,6 +1525,8 @@ class _EstadoRecienteState extends State<_EstadoReciente> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.eliminando) return const SizedBox.shrink();
+
     return StreamBuilder<QuerySnapshot>(
       key: ValueKey('estado-reciente-$_reintento'),
       stream: FirebaseFirestore.instance
@@ -1448,7 +1536,11 @@ class _EstadoRecienteState extends State<_EstadoReciente> {
           .limit(10)
           .snapshots(),
       builder: (context, snap) {
-        if (snap.hasError) {
+        if (snap.hasError &&
+            !ignorarErrorDeStreamDuranteEliminacion(
+              eliminando: widget.eliminando,
+              codigo: _codigoFirebase(snap.error),
+            )) {
           return EstadoError(
             mensaje: mensajeErrorAmigable(
               snap.error!,
@@ -1457,6 +1549,7 @@ class _EstadoRecienteState extends State<_EstadoReciente> {
             onReintentar: _reintentar,
           );
         }
+        if (snap.hasError) return const SizedBox.shrink();
         if (snap.connectionState == ConnectionState.waiting) {
           return const EstadoCargando(texto: 'Cargando estado...');
         }
@@ -1553,7 +1646,8 @@ class _FilaEstado extends StatelessWidget {
 /// pantalla solo lee el resultado y lo dibuja.
 class _PestanaEstadisticas extends StatefulWidget {
   final Paciente paciente;
-  const _PestanaEstadisticas({required this.paciente});
+  final bool eliminando;
+  const _PestanaEstadisticas({required this.paciente, this.eliminando = false});
 
   @override
   State<_PestanaEstadisticas> createState() => _PestanaEstadisticasState();
@@ -1596,6 +1690,8 @@ class _PestanaEstadisticasState extends State<_PestanaEstadisticas> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.eliminando) return const SizedBox.shrink();
+
     return FutureBuilder<List<RegistroToma>>(
       key: ValueKey('estadisticas-registros-$_reintento'),
       future: _registros,
@@ -1603,7 +1699,11 @@ class _PestanaEstadisticasState extends State<_PestanaEstadisticas> {
         if (snap.connectionState == ConnectionState.waiting) {
           return const EstadoCargando(texto: 'Cargando estadísticas...');
         }
-        if (snap.hasError) {
+        if (snap.hasError &&
+            !ignorarErrorDeStreamDuranteEliminacion(
+              eliminando: widget.eliminando,
+              codigo: _codigoFirebase(snap.error),
+            )) {
           return EstadoError(
             mensaje: mensajeErrorAmigable(
               snap.error!,
@@ -1612,13 +1712,18 @@ class _PestanaEstadisticasState extends State<_PestanaEstadisticas> {
             onReintentar: _reintentar,
           );
         }
+        if (snap.hasError) return const SizedBox.shrink();
         final registros = snap.data ?? const <RegistroToma>[];
 
         return StreamBuilder<List<Tratamiento>>(
           key: ValueKey('estadisticas-tratamientos-$_reintento'),
           stream: _tratamientos,
           builder: (context, tratSnap) {
-            if (tratSnap.hasError) {
+            if (tratSnap.hasError &&
+                !ignorarErrorDeStreamDuranteEliminacion(
+                  eliminando: widget.eliminando,
+                  codigo: _codigoFirebase(tratSnap.error),
+                )) {
               return EstadoError(
                 mensaje: mensajeErrorAmigable(
                   tratSnap.error!,
@@ -1627,6 +1732,7 @@ class _PestanaEstadisticasState extends State<_PestanaEstadisticas> {
                 onReintentar: _reintentar,
               );
             }
+            if (tratSnap.hasError) return const SizedBox.shrink();
             if (tratSnap.connectionState == ConnectionState.waiting &&
                 !tratSnap.hasData) {
               return const EstadoCargando(texto: 'Cargando estadísticas...');

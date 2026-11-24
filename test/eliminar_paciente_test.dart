@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mediplan/models/estado_dispositivo.dart';
 import 'package:mediplan/theme/app_theme.dart';
 import 'package:mediplan/utils/confirmacion_eliminar_paciente.dart';
+import 'package:mediplan/utils/dialogo_progreso.dart';
 import 'package:mediplan/utils/eliminacion_paciente.dart';
 import 'package:mediplan/utils/limpieza_paciente.dart';
 import 'package:mediplan/utils/lotes.dart';
@@ -59,6 +62,39 @@ void main() {
 
     test('rechaza un tamaño inválido', () {
       expect(() => partirEnLotes([1], 0), throwsArgumentError);
+    });
+  });
+
+  group('ignorarErrorDeStreamDuranteEliminacion', () {
+    test('ignora permiso y no encontrado solo mientras se elimina', () {
+      expect(
+        ignorarErrorDeStreamDuranteEliminacion(
+          eliminando: true,
+          codigo: 'permission-denied',
+        ),
+        isTrue,
+      );
+      expect(
+        ignorarErrorDeStreamDuranteEliminacion(
+          eliminando: true,
+          codigo: 'not-found',
+        ),
+        isTrue,
+      );
+      expect(
+        ignorarErrorDeStreamDuranteEliminacion(
+          eliminando: true,
+          codigo: 'unavailable',
+        ),
+        isFalse,
+      );
+      expect(
+        ignorarErrorDeStreamDuranteEliminacion(
+          eliminando: false,
+          codigo: 'permission-denied',
+        ),
+        isFalse,
+      );
     });
   });
 
@@ -210,6 +246,70 @@ void main() {
         isFalse,
       );
       expect(pasos.last, PasoEliminacionPaciente.paciente);
+    });
+  });
+
+  group('diálogo de progreso', () {
+    testWidgets('se cierra cuando la acción termina bien', (tester) async {
+      late BuildContext context;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) {
+                context = ctx;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+
+      final accion = Completer<void>();
+      final ejecucion = ejecutarConDialogoDeProgreso(
+        context: context,
+        builder: (_) => const AlertDialog(content: Text('Eliminando...')),
+        accion: () => accion.future,
+      );
+
+      await tester.pump();
+      expect(find.text('Eliminando...'), findsOneWidget);
+
+      accion.complete();
+      await ejecucion;
+      await tester.pumpAndSettle();
+      expect(find.text('Eliminando...'), findsNothing);
+    });
+
+    testWidgets('se cierra aunque la acción falle', (tester) async {
+      late BuildContext context;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) {
+                context = ctx;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+
+      final accion = Completer<void>();
+      final ejecucion = ejecutarConDialogoDeProgreso(
+        context: context,
+        builder: (_) => const AlertDialog(content: Text('Eliminando...')),
+        accion: () => accion.future,
+      );
+
+      await tester.pump();
+      expect(find.text('Eliminando...'), findsOneWidget);
+
+      accion.completeError(StateError('falló'));
+      await expectLater(ejecucion, throwsA(isA<StateError>()));
+      await tester.pumpAndSettle();
+      expect(find.text('Eliminando...'), findsNothing);
     });
   });
 

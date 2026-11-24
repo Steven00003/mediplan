@@ -27,3 +27,17 @@ List<PasoEliminacionPaciente> ordenEliminacionPaciente({
     if (notificarPaciente) PasoEliminacionPaciente.notificarPaciente,
   ];
 }
+
+/// Indica si un error de un stream del detalle debe ocultarse porque el
+/// paciente se está eliminando.
+///
+/// Al borrar el documento, los listeners que aún estaban activos pueden recibir
+/// `permission-denied` o `not-found`. Eso no es un fallo para el usuario: la
+/// eliminación ya está en curso y el diálogo de progreso se encarga de la
+/// pantalla. El resto de errores sigue mostrándose normalmente.
+bool ignorarErrorDeStreamDuranteEliminacion({
+  required bool eliminando,
+  required String? codigo,
+}) {
+  return eliminando && (codigo == 'permission-denied' || codigo == 'not-found');
+}
