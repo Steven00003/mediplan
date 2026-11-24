@@ -1,151 +1,96 @@
-# MediPlan / Pastillero Familiar
+﻿# MediPlan
 
-App móvil multiplataforma (Flutter) de control de medicamentos para personas con
-deficiencia cognitiva leve a moderada. Conecta a un **cuidador/doctor** con uno o
-varios **pacientes** con dos experiencias de interfaz completamente distintas.
-Backend **100% cliente + reglas de Firestore**: no usa Cloud Functions, no usa
-FCM, no usa Storage ni plan Blaze.
+Aplicacion movil (Flutter) de control de medicamentos para personas con
+deficiencia cognitiva leve a moderada. Conecta a un cuidador o doctor con uno o
+varios pacientes mediante dos experiencias de interfaz distintas.
+
+Backend 100% cliente + reglas de Firestore: no usa Cloud Functions, no usa
+Storage ni plan Blaze. La alerta de 5 dias sin tomas usa push FCM HTTP v1
+enviado desde el celular del paciente.
 
 ## Roles
 
-- **Doctor / Cuidador** — Se autentica con Firebase Auth (correo/contraseña o
-  Google). Crea pacientes, genera códigos de vinculación, configura
-  tratamientos (nombre, foto, dosis, horarios, frecuencia) y ve el estado de
-  cumplimiento en tiempo real (dashboard con actividad reciente + notificación
-  local cuando la app está abierta).
-- **Paciente** — Sin login. Ingresa un código para unirse, ve "Medicamentos
-  próximos" con íconos y navegación mínima, y recibe una pantalla de alarma con
-  foto real, brillo automático, vibración y botones **YA** / **Recordar**.
+- **Doctor / Cuidador**: se autentica con Firebase Auth (correo y contrasena o
+  Google). Crea pacientes, genera codigos de vinculacion, configura tratamientos
+  y ve el cumplimiento en tiempo real.
+- **Paciente**: sin login. Se vincula con un codigo, ve sus medicamentos
+  proximos, recibe alarmas y confirma cada toma.
 
-## Estructura
+## Funciones actuales
 
-```
-lib/
-  main.dart                  → init Firebase + notificaciones + arranque
-  app.dart                   → MaterialApp + router por rol (HomeRouter)
-  firebase_options.dart      → config de Firebase (⬅️ correr flutterfire configure)
-  models/                    → Usuario, Paciente, Tratamiento, RegistroToma
-  services/
-    auth_service.dart        → login/registro cuidador, Google Sign-In
-    firestore_service.dart   → acceso a Firestore (pacientes, tratamientos, registros)
-    vinculacion_service.dart → generación/validación de código + sesión anónima
-    notificaciones_service.dart → alarmas locales + notificación local al cuidador
-    sensores_service.dart    → vibración + luz ambiental + brillo
-    imagen_service.dart      → foto del medicamento comprimida a base64 (sin Storage)
-    local_store.dart         → persistencia local del vínculo dispositivo-paciente
-  providers/app_state.dart   → estado global por rol
-  screens/
-    seleccion_rol_screen.dart
-    doctor/   login, dashboard, nuevo_paciente, detalle_paciente, editar_tratamiento
-    paciente/ codigo_unirse, medicamentos_proximos, alarma
-firestore.rules              → reglas de seguridad de Firestore (toda la lógica)
-```
+- Vinculacion por codigo `MEDI-XXXXXX` con vencimiento de 72 horas.
+- Alarmas en una ventana movil de 7 dias, con aviso previo, felicitacion y
+  recordatorio tardio.
+- Detalle del medicamento y ventana de confirmacion.
+- Historial y estadisticas de tomas.
+- Alerta al cuidador si un paciente lleva 5 dias sin tomas registradas.
+- Perfil publico del doctor (`medicos/{uid}`) y tarjeta "Tu medico" para el
+  paciente.
+- Tarjeta "Celular del paciente" y pantalla "Comprobar mi celular".
+- Asistente de permisos para el paciente.
+- Eliminacion de pacientes con borrado completo y limpieza del celular.
+- Desvinculacion y reconciliacion de tomas olvidadas.
 
-## Modelo de datos (Firestore)
+## Stack
 
-Colecciones:
+- Flutter 3.47.2 / Dart 3.13.2
+- Firebase Auth, Cloud Firestore, Firebase Messaging
+- flutter_local_notifications, screen_brightness, image_picker
+- Reglas de Firestore en `firestore.rules`
 
-- `usuarios/{uid}` — cuidador/doctor: `nombre`, `correo`.
-- `pacientes/{id}` — `nombre`, `cuidadorId`, `codigoVinculacion`,
-  `dispositivoVinculadoId` (UID de la sesión anónima del paciente).
-- `tratamientos/{id}` — `pacienteId`, `nombreMedicamento`, `fotoBase64` (foto
-  codificada en base64 dentro del documento, ~200-300 KB para cumplir el límite
-  de 1 MB de Firestore), `dosis`, `horarios[]` (HH:mm), `frecuencia`.
-- `registrosToma/{id}` — `tratamientoId`, `pacienteId`, `horaProgramada`,
-  `horaConfirmacion` (nullable), `estado` (`pendiente|tomó|tardó|olvidó|pospuesta`).
+## Configuracion de Firebase
 
-### Código de vinculación
+1. Crea o usa el proyecto `mediplan-35953`.
+2. Coloca `android/app/google-services.json` y `lib/firebase_options.dart`.
+3. Despliega reglas con:
 
-Formato `MEDI-XXXXXX` con un alfabeto sin caracteres ambiguos (se omiten `0/O`,
-`1/I`, etc.) para facilitar la copia manual. El paciente se autentica de forma
-**anónima** (Firebase Auth) y su UID se guarda como `dispositivoVinculadoId`, lo
-que hace el vínculo persistir entre reinicios de forma segura.
+   `firebase deploy --only firestore:rules --project mediplan-35953`
 
-La vinculación es **100% desde el cliente**: el paciente busca su documento por
-código y escribe su propio UID como `dispositivoVinculadoId`. Las reglas de
-Firestore garantizan que solo pueda asociarse si el documento estaba libre y sin
-alterar el código ni el cuidador (ver `firestore.rules` en la raíz).
+No despliegues reglas ni indices sin avisar que cambia.
 
-## Setup de Firebase
+## Push FCM
 
-### 1. Crear el proyecto y habilitar servicios
+Genera `assets/secrets/fcm_service_account.json` segun
+`assets/secrets/README.md`. Si falta, la app sigue funcionando, pero el push de
+sincronizacion y la alerta de 5 dias no se envian; las notificaciones locales
+siguen activas.
 
-1. Consola Firebase → *Agregar proyecto* (ej. `mediplan-proyecto`).
-2. Habilitar **Authentication** (métodos: correo/contraseña, Google, *Anonymous*).
-3. Habilitar **Cloud Firestore**. *No* se usa Cloud Functions, Firebase Storage
-   ni Cloud Messaging (todo corre desde el cliente + reglas de Firestore), por
-   lo que no hace falta el plan Blaze.
+## Compilacion
 
-### 2. Configurar la app Flutter (Android + iOS)
+Compila siempre en debug:
 
-```bash
-dart pub global activate flutterfire_cli
-flutterfire configure
-```
+`flutter build apk --debug`
 
-Esto rellena `lib/firebase_options.dart` con tus claves y añade
-`google-services.json` (Android) y `GoogleService-Info.plist` (iOS). Hasta que lo
-corras, la app **no** podrá conectarse a ningún servicio.
+No uses `--release`: la firma release con la clave de depuracion cambia la
+firma y rompe el login de Google.
 
-> Nota: `lib/firebase_options.dart` es un placeholder con `TU_API_KEY_...` como
-> valores; `flutterfire configure` lo sobrescribe.
+## Tests y analisis
 
-### 3. Desplegar las reglas de Firestore
+- `flutter analyze`
+- `flutter test`
+- Para un archivo: `flutter test test/<archivo>.dart`
 
-```bash
-# Reglas de Firestore (toda la lógica de acceso vive aquí)
-firebase deploy --only firestore:rules
-```
+Ejecuta analyze y test de forma secuencial.
 
-> No hay Cloud Functions ni Storage que desplegar: la vinculación por código y
-> las alertas al cuidador corren 100% desde el cliente contra Firestore.
+## Matriz de versiones de Android probadas
 
-## Notificaciones al cuidador
+| Android | Dispositivo | Estado |
+|---|---|---|
+| 9 | Huawei Y9 Prime | Probado: alarma sonó y abrió la app |
+| 11 | Motorola G20 | Probado: alarma funcionó |
+| (versión por confirmar) | Samsung Galaxy A36 | Probado: alarma funcionó |
 
-Las alertas del cuidador **no usan FCM/Cloud Functions**: el dashboard escucha en
-tiempo real la colección `registrosToma` de sus pacientes y refleja los cambios
-de estado al instante. Además muestra una **notificación local** del teléfono
-cuando llega una confirmación.
+## Limitaciones conocidas
 
-- Funciona con la app del cuidador en **primer plano o en segundo plano**
-  (pausada).
-- **No** funciona si la app está **cerrada por completo**: para eso hace falta
-  un servidor/FCM, que no se usa por no requerir plan Blaze.
+- iOS no esta soportado en esta version: maximo 64 notificaciones locales,
+  sin alarma a pantalla completa ni arranque en segundo plano, y FCM requiere
+  cuenta de Apple Developer.
+- Algunos fabricantes con ahorro agresivo de bateria o canales silenciosos
+  (caso Huawei) pueden requerir activar sonido e inicio automatico manualmente.
+- La credencial FCM viaja dentro del APK y es extraible.
+- Las fotos se guardan como base64 en Firestore; no se usa Storage.
 
-## Prueba del flujo completo
+## Documentacion
 
-Requisito previo: dos dispositivos/emuladores (uno para cada rol) o alternar
-entre la app y la consola de Firestore.
-
-1. **Crear cuidador**: en la app, *Doctor → Registrate* (correo/contraseña).
-2. **Crear paciente**: en el dashboard, botón *Nuevo paciente* → genera el
-   código `MEDI-XXXXXX`. Compartilo.
-3. **Vincular paciente**: en el otro dispositivo, *Paciente → Código para
-   unirse* → ingresá el código. (Escritura directa a Firestore, validada por las
-   reglas; sin Cloud Functions.)
-4. **Configurar tratamiento**: desde el dashboard, abrí el paciente → *Nuevo
-   medicamento* → nombre, foto real, dosis, horario(s) y frecuencia. Guardar
-   programa las alarmas locales diarias.
-5. **Simular la hora de toma**: el paciente ve el medicamento en "Medicamentos
-   próximos". Cuando llega el horario (o al tocar el item), se abre la pantalla
-   de alarma: foto, brillo al máximo, vibración.
-6. **Confirmar**: botón *YA* → registra la toma en Firestore; el dashboard del
-   cuidador la refleja en tiempo real y dispara una notificación local.
-7. **Ver estado**: en el dashboard del cuidador, el paciente muestra las tomas
-   marcadas como *Tomadas/Tardías/Olvidadas* en tiempo real.
-
-Para probar sin esperar la hora: configurá un tratamiento con un horario cercano
-a la hora actual, o tocá el item del medicamento para abrir la alarma
-directamente.
-
-## Verificación
-
-```bash
-flutter pub get
-flutter analyze      # sin issues
-flutter test         # smoke test básico
-```
-
-> El build de Android (`flutter build apk`) requiere tener el NDK instalado en
-> el Android SDK local (`sdkmanager "ndk;28.x"`); es un requisito de entorno, no
-> de este código.
+- `ESQUEMA.md`: modelo de datos y reglas.
+- `AGENTS.md`: arquitectura, comandos y estado del proyecto.

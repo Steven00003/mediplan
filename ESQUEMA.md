@@ -643,7 +643,7 @@ Matriz de versiones (probadas / no probadas):
 | 13 | 33 | No probado | `POST_NOTIFICATIONS` runtime |
 | 14 | 34 | No probado | Pantalla completa requiere permiso |
 | 15 | 35 | No probado | Cambios de segundo plano y alarmas |
-| 16 | 36 | Objetivo de compilacion | Target actual |
+| 16 | 36 | Objetivo de compilacion | Target actual |\n| (por confirmar) | (por confirmar) | Probado en Samsung Galaxy A36 | Alarma funcionó |
 
 ## Limitaciones conocidas
 
