@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
@@ -40,6 +42,13 @@ class MediPlanApp extends StatelessWidget {
         title: 'MediPlan',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
+        locale: const Locale('es'),
+        supportedLocales: const <Locale>[Locale('es')],
+        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: const BootstrapScreen(),
       ),
     );
@@ -86,6 +95,7 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       _error = null;
     });
     try {
+      await initializeDateFormatting('es');
       // Inicializa Firebase (ver firebase_options.dart: correr `flutterfire configure`).
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,

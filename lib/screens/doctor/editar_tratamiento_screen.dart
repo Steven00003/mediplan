@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+﻿import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
@@ -424,13 +424,13 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
   /// Opciones de frecuencia. Se guardan tal cual en el campo de texto libre
   /// `frecuencia`, así que agregar una opción no afecta a las ya almacenadas.
   List<DropdownMenuItem<String>> get _frecuenciaItems => [
-    const DropdownMenuItem(value: 'Diaria', child: Text('Diaria')),
-    const DropdownMenuItem(value: 'Cada 12 h', child: Text('Cada 12 h')),
-    const DropdownMenuItem(value: 'Cada 8 h', child: Text('Cada 8 h')),
-    const DropdownMenuItem(value: 'Semanal', child: Text('Semanal')),
+    const DropdownMenuItem(value: 'Diaria', child: Text('Diaria', maxLines: 1, overflow: TextOverflow.ellipsis)),
+    const DropdownMenuItem(value: 'Cada 12 h', child: Text('Cada 12 h', maxLines: 1, overflow: TextOverflow.ellipsis)),
+    const DropdownMenuItem(value: 'Cada 8 h', child: Text('Cada 8 h', maxLines: 1, overflow: TextOverflow.ellipsis)),
+    const DropdownMenuItem(value: 'Semanal', child: Text('Semanal', maxLines: 1, overflow: TextOverflow.ellipsis)),
     const DropdownMenuItem(
       value: 'Solo cuando sea necesario',
-      child: Text('Solo cuando sea necesario'),
+      child: Text('Solo cuando sea necesario', maxLines: 1, overflow: TextOverflow.ellipsis),
     ),
   ];
 
@@ -460,32 +460,43 @@ class _EditarTratamientoScreenState extends State<EditarTratamientoScreen> {
             ),
             const SizedBox(height: 12),
             // Dosis
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _dosisController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Dosis',
-                      suffixText: 'dosis',
-                      border: OutlineInputBorder(),
-                    ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final dosis = TextField(
+                  controller: _dosisController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Dosis',
+                    suffixText: 'dosis',
+                    border: OutlineInputBorder(),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _frecuencia,
-                    onChanged: (v) => setState(() => _frecuencia = v!),
-                    decoration: const InputDecoration(
-                      labelText: 'Frecuencia',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _frecuenciaItems,
+                );
+                final frecuencia = DropdownButtonFormField<String>(
+                  initialValue: _frecuencia,
+                  isExpanded: true,
+                  onChanged: (v) => setState(() => _frecuencia = v!),
+                  decoration: const InputDecoration(
+                    labelText: 'Frecuencia',
+                    border: OutlineInputBorder(),
                   ),
-                ),
-              ],
+                  items: _frecuenciaItems,
+                );
+                final textScaler = MediaQuery.textScalerOf(context);
+                if (constraints.maxWidth < 360 ||
+                    textScaler.scale(1.0) > 1.3) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [dosis, const SizedBox(height: 12), frecuencia],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: dosis),
+                    const SizedBox(width: 16),
+                    Expanded(child: frecuencia),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 12),
             // Fecha de inicio: fecha local, sin hora.

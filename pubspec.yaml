@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   cupertino_icons: ^1.0.8
 
@@ -58,7 +60,7 @@ dependencies:
   ambient_light: ^0.1.0
 
   # Utilidades
-  intl: ^0.19.0
+  intl: ^0.20.3
   provider: ^6.1.2
   image_picker: ^1.1.2
   uuid: ^4.5.0
