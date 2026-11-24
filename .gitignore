@@ -52,3 +52,6 @@ app.*.map.json
 
 # Capturas originales
 tools/capturas/
+
+# Capturas de verificacion de la landing
+tools/capturas-landing/
