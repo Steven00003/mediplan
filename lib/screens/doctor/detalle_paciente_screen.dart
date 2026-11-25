@@ -138,11 +138,46 @@ class _DetalleBody extends StatefulWidget {
   State<_DetalleBody> createState() => _DetalleBodyState();
 }
 
-class _DetalleBodyState extends State<_DetalleBody> {
+class _DetalleBodyState extends State<_DetalleBody>
+    with SingleTickerProviderStateMixin {
   /// Arranca en "Horario" (índice 1): es la pestaña de trabajo del cuidador.
   int _pestana = 1;
 
   bool _eliminando = false;
+  late final TabController _tabController;
+  late final ScrollController _scrollController;
+  bool _mostrarFab = true;
+  double _ultimoOffset = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this, initialIndex: _pestana);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() => _pestana = _tabController.index);
+      }
+    });
+    _scrollController = ScrollController();
+    _scrollController.addListener(() {
+      final offset = _scrollController.offset;
+      final bajando = offset > _ultimoOffset + 2;
+      final subiendo = offset < _ultimoOffset - 2;
+      if (bajando && _mostrarFab) {
+        setState(() => _mostrarFab = false);
+      } else if (subiendo && !_mostrarFab) {
+        setState(() => _mostrarFab = true);
+      }
+      _ultimoOffset = offset;
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   void _cambiarEliminando(bool valor) {
     if (_eliminando == valor) return;
@@ -249,7 +284,11 @@ class _DetalleBodyState extends State<_DetalleBody> {
       canPop: !_eliminando,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(paciente.nombre),
+          title: Text(
+            paciente.nombre,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           actions: [
             IconButton(
               tooltip: 'Editar',
@@ -291,69 +330,77 @@ class _DetalleBodyState extends State<_DetalleBody> {
             ),
           ],
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _eliminando
-              ? null
-              : () {
-                  Navigator.of(context).push(
-                    AppPageRoute(
-                      builder: (_) => EditarTratamientoScreen(
-                        pacienteId: paciente.id,
-                        esNuevo: true,
-                      ),
-                    ),
-                  );
-                },
-          icon: const Icon(Icons.add),
-          label: const Text('Nuevo medicamento'),
-        ),
-        body: Column(
-          children: [
-            const BannerSinConexion(
-              mensaje:
-                  'Sin conexión. Puede que estés viendo datos desactualizados.',
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.sm,
-                AppSpacing.sm,
-                AppSpacing.sm,
-                AppSpacing.xs,
-              ),
-              child: Column(
-                children: [
-                  _FichaPaciente(paciente: paciente),
-                  const SizedBox(height: AppSpacing.xs),
-                  SeccionVinculacionDispositivo(
-                    paciente: paciente,
-                    vinculado: vinculado,
-                    eliminando: _eliminando,
-                  ),
-                ],
+        body: NestedScrollView(
+          controller: _scrollController,
+          headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            SliverToBoxAdapter(
+              child: const BannerSinConexion(
+                mensaje:
+                    'Sin conexión. Puede que estés viendo datos desactualizados.',
               ),
             ),
-            const Divider(height: 1),
-            Expanded(
-              child: IndexedStack(
-                index: _pestana,
-                children: [
-                  _PestanaHistorial(
-                    paciente: paciente,
-                    eliminando: _eliminando,
-                  ),
-                  _PestanaHorario(paciente: paciente, eliminando: _eliminando),
-                  _PestanaEstadisticas(
-                    paciente: paciente,
-                    eliminando: _eliminando,
-                  ),
-                ],
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                child: FichaPaciente(paciente: paciente),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.sm,
+                  0,
+                  AppSpacing.sm,
+                  AppSpacing.xl,
+                ),
+                child: SeccionVinculacionDispositivo(
+                  paciente: paciente,
+                  vinculado: vinculado,
+                  eliminando: _eliminando,
+                ),
               ),
             ),
           ],
+          body: TabBarView(
+            controller: _tabController,
+            children: [
+              _PestanaHistorial(
+                paciente: paciente,
+                eliminando: _eliminando,
+              ),
+              _PestanaHorario(paciente: paciente, eliminando: _eliminando),
+              _PestanaEstadisticas(
+                paciente: paciente,
+                eliminando: _eliminando,
+              ),
+            ],
+          ),
         ),
+        floatingActionButton: _pestana == 1 && _mostrarFab
+            ? FloatingActionButton.extended(
+                onPressed: _eliminando
+                    ? null
+                    : () {
+                        Navigator.of(context).push(
+                          AppPageRoute(
+                            builder: (_) => EditarTratamientoScreen(
+                              pacienteId: paciente.id,
+                              esNuevo: true,
+                            ),
+                          ),
+                        );
+                      },
+                icon: const Icon(Icons.add),
+                label: const Text('Nuevo medicamento'),
+              )
+            : null,
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _pestana,
-          onTap: (i) => setState(() => _pestana = i),
+          onTap: (i) => _tabController.animateTo(i),
+          selectedFontSize: 12,
+          unselectedFontSize: 11,
+          iconSize: 22,
+          type: BottomNavigationBarType.fixed,
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.medication),
@@ -772,7 +819,12 @@ class _PestanaHistorialState extends State<_PestanaHistorial> {
               );
             }
             return ListView.separated(
-              padding: const EdgeInsets.all(AppSpacing.sm),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.sm,
+                AppSpacing.sm,
+                AppSpacing.sm,
+                AppSpacing.xl,
+              ),
               itemCount: registros.length,
               separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.xs),
               itemBuilder: (context, i) => _FilaHistorial(
@@ -970,7 +1022,7 @@ class _CardCelularPaciente extends StatelessWidget {
                 color: AppColors.textSecondary,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Wrap(
               spacing: AppSpacing.sm,
               runSpacing: 4,
@@ -1022,12 +1074,16 @@ class _IndicadorCelular extends StatelessWidget {
           size: 16,
         ),
         const SizedBox(width: 4),
-        Text(
-          texto,
-          style: AppType.label.copyWith(
-            color: color,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
+        Flexible(
+          child: Text(
+            texto,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.label.copyWith(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
@@ -1081,115 +1137,119 @@ class _BtnDesvincular extends StatelessWidget {
   }
 }
 
-class _FichaPaciente extends StatelessWidget {
+class FichaPaciente extends StatelessWidget {
   final Paciente paciente;
-  const _FichaPaciente({required this.paciente});
+  const FichaPaciente({super.key, required this.paciente});
 
   @override
   Widget build(BuildContext context) {
-    // Edad, condición, contacto y foto son opcionales: se omite lo que no se
-    // informe, así que los pacientes creados antes de que existieran los campos
-    // muestran solo el nombre, sin placeholders ni filas vacías.
     final edad = paciente.edad;
     final condicion = paciente.condicion?.trim();
     final contacto = paciente.contactoEmergencia?.trim();
     final telefono = normalizarTelefonoEmergencia(contacto);
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AvatarPaciente(paciente: paciente, radio: 40),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                paciente.nombre,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.title.copyWith(color: AppColors.onGreen),
-              ),
-              if (edad != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  '$edad ${edad == 1 ? 'año' : 'años'}',
-                  style: AppType.body.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 14,
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AvatarPaciente(paciente: paciente, radio: 28),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        paciente.nombre,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.title.copyWith(color: AppColors.onGreen),
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: AppSpacing.xs,
+                        runSpacing: AppSpacing.xs,
+                        children: [
+                          if (edad != null)
+                            ChipCondicion(texto: '$edad ${edad == 1 ? 'año' : 'años'}'),
+                          if (condicion != null && condicion.isNotEmpty)
+                            ChipCondicion(texto: condicion),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ],
-              if (condicion != null && condicion.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                ChipCondicion(texto: condicion),
-              ],
-              if (contacto != null && contacto.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.xs),
-                Semantics(
-                  label: 'Contacto de emergencia: $contacto',
-                  child: Row(
-                    children: [
-                      const Icon(
+            ),
+            if (contacto != null && contacto.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Semantics(
+                label: 'Contacto de emergencia: $contacto',
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(
                         Icons.phone,
                         size: 18,
                         color: AppColors.textSecondary,
                       ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Emergencias: $contacto',
-                          style: AppType.body.copyWith(
-                            color: AppColors.textSecondary,
-                            fontSize: 14,
-                          ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Emergencia: $contacto',
+                        softWrap: true,
+                        style: AppType.body.copyWith(
+                          color: AppColors.textSecondary,
+                          fontSize: 14,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                if (telefono != null) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Wrap(
-                    spacing: AppSpacing.xs,
-                    runSpacing: AppSpacing.xs,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () =>
-                            abrirMarcadorTelefono(context, telefono),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.onGreen,
-                          side: const BorderSide(color: AppColors.accent),
-                          minimumSize: const Size(0, AppSizes.minTouch),
+                    ),
+                    if (telefono != null) ...[
+                      IconButton(
+                        tooltip: 'Llamar al contacto de emergencia',
+                        onPressed: () => abrirMarcadorTelefono(context, telefono),
+                        icon: const Icon(Icons.call),
+                        iconSize: 20,
+                        constraints: const BoxConstraints(
+                          minWidth: 48,
+                          minHeight: 48,
                         ),
-                        icon: const Icon(Icons.call, size: AppSizes.iconSmall),
-                        label: const Text('Llamar'),
+                        color: AppColors.onGreen,
                       ),
-                      OutlinedButton.icon(
+                      IconButton(
+                        tooltip: 'Copiar número de emergencia',
                         onPressed: () async {
-                          await Clipboard.setData(
-                            ClipboardData(text: telefono),
-                          );
+                          await Clipboard.setData(ClipboardData(text: telefono));
                           if (context.mounted) {
                             mostrarSnackInfo(context, 'Número copiado');
                           }
                         },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.onGreen,
-                          side: const BorderSide(color: AppColors.accent),
-                          minimumSize: const Size(0, AppSizes.minTouch),
+                        icon: const Icon(Icons.copy),
+                        iconSize: 20,
+                        constraints: const BoxConstraints(
+                          minWidth: 48,
+                          minHeight: 48,
                         ),
-                        icon: const Icon(Icons.copy, size: AppSizes.iconSmall),
-                        label: const Text('Copiar'),
+                        color: AppColors.onGreen,
                       ),
                     ],
-                  ),
-                ],
-              ],
+                  ],
+                ),
+              ),
             ],
-          ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -1339,7 +1399,7 @@ class _SeccionVinculacionDispositivoState
                               color: AppColors.onGreen,
                               fontWeight: FontWeight.bold,
                             ),
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 2),
@@ -1390,7 +1450,7 @@ class _SeccionVinculacionDispositivoState
                   ],
                 ),
                 if (_expandido) ...[
-                  const Divider(height: 20),
+                  const Divider(height: 8),
                   Text(
                     widget.vinculado
                         ? 'Estado: dispositivo vinculado'
@@ -1404,15 +1464,19 @@ class _SeccionVinculacionDispositivoState
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          _codigo.isEmpty ? 'Sin código' : _codigo,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 24,
-                            letterSpacing: 1.5,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.onGreen,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            _codigo.isEmpty ? 'Sin código' : _codigo,
+                            maxLines: 1,
+                            softWrap: false,
+                            style: const TextStyle(
+                              fontSize: 24,
+                              letterSpacing: 1.5,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.onGreen,
+                            ),
                           ),
                         ),
                       ),
@@ -1424,8 +1488,11 @@ class _SeccionVinculacionDispositivoState
                       ),
                     ],
                   ),
-                  _vencimiento(snap, ahora),
-                  const SizedBox(height: AppSpacing.xs),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: _vencimiento(snap, ahora),
+                  ),
+                  const SizedBox(height: 2),
                   if (!widget.vinculado)
                     TextButton.icon(
                       onPressed: _generando ? null : _generar,
@@ -1762,7 +1829,12 @@ class _PestanaEstadisticasState extends State<_PestanaEstadisticas> {
             }
 
             return ListView(
-              padding: const EdgeInsets.all(AppSpacing.sm),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.sm,
+                AppSpacing.sm,
+                AppSpacing.sm,
+                AppSpacing.xl,
+              ),
               children: [
                 _CardAdherencia(resumen: titular, dias: _diasTitular),
                 const SizedBox(height: AppSpacing.xs),
